@@ -15,6 +15,22 @@ import picocli.CommandLine;
 public class GatewayMain {
 
     public static void main(String[] args) {
-        System.exit(new CommandLine(new RootCommand()).execute(args));
+        System.exit(commandLine().execute(args));
+    }
+
+    /**
+     * Failures are reported as one line on stderr. A stack trace can quote driver or file content, so it is only printed
+     * when the operator explicitly sets {@code AI_DB_MCP_DEBUG}.
+     */
+    public static CommandLine commandLine() {
+        CommandLine cmd = new CommandLine(new RootCommand());
+        cmd.setExecutionExceptionHandler((ex, commandLine, parseResult) -> {
+            System.err.println("Error: " + ex.getMessage());
+            if (System.getenv("AI_DB_MCP_DEBUG") != null) {
+                ex.printStackTrace();
+            }
+            return 1;
+        });
+        return cmd;
     }
 }

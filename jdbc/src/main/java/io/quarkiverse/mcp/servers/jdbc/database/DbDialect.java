@@ -27,6 +27,14 @@ public interface DbDialect {
     /** Statement that switches the session to the given schema, or {@code null} to use {@code Connection.setSchema}. */
     String defaultSchemaStatement(String schema);
 
+    /**
+     * Statement to run at the start of a read-only transaction, or {@code null} if {@code Connection.setReadOnly(true)}
+     * is enough. Oracle ignores the JDBC flag for enforcement, so it needs an explicit statement.
+     */
+    default String readOnlyTransactionStatement() {
+        return null;
+    }
+
     /** Schemas that hold system catalogs and must never be readable through the gateway. */
     Set<String> systemSchemas();
 

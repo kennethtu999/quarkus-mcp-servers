@@ -5,28 +5,28 @@ import java.util.Arrays;
 import io.quarkiverse.mcp.servers.jdbc.database.DbType;
 import io.quarkiverse.mcp.servers.jdbc.profile.DbProfile;
 
-final class SecretTestSupport {
+public final class SecretTestSupport {
 
-    static final String SENTINEL_PASSWORD = "S3NTINEL-pa55w0rd-DO-NOT-LEAK";
+    public static final String SENTINEL_PASSWORD = "S3NTINEL-pa55w0rd-DO-NOT-LEAK";
 
     private SecretTestSupport() {
     }
 
-    static DbProfile profile(String id, String label) {
+    public static DbProfile profile(String id, String label) {
         return new DbProfile(id, label, DbType.POSTGRESQL, "jdbc:postgresql://h:5432/db?sslmode=verify-full", "ai_user",
                 SENTINEL_PASSWORD.toCharArray(), "public", true);
     }
 
     /** In-memory key provider so crypto tests do not depend on the OS keychain. */
-    static final class MemoryKeys implements MasterKeyProvider {
-        byte[] key;
-        boolean available = true;
+    public static final class MemoryKeys implements MasterKeyProvider {
+        public byte[] key;
+        public boolean available = true;
 
-        MemoryKeys(byte[] key) {
+        public MemoryKeys(byte[] key) {
             this.key = key;
         }
 
-        static MemoryKeys random() {
+        public static MemoryKeys random() {
             byte[] k = new byte[32];
             new java.security.SecureRandom().nextBytes(k);
             return new MemoryKeys(k);

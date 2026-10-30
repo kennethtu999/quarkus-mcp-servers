@@ -40,6 +40,11 @@ public final class OracleDialect implements DbDialect {
     }
 
     @Override
+    public String readOnlyTransactionStatement() {
+        return "SET TRANSACTION READ ONLY";
+    }
+
+    @Override
     public String validationQuery() {
         return "SELECT 1 FROM DUAL";
     }
