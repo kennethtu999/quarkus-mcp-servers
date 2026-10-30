@@ -3,7 +3,6 @@ package io.quarkiverse.mcp.servers.jdbc.cli;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Arrays;
-import java.util.Map;
 import java.util.function.Function;
 
 import io.quarkiverse.mcp.servers.jdbc.database.ConnectionManager;
@@ -63,7 +62,8 @@ public final class GatewayContext {
         }
 
         this.connections = connectionsOverride != null ? connectionsOverride
-                : new ConnectionManager(new DriverLoader(paths.driversDir(), Map.of()));
+                : new ConnectionManager(new DriverLoader(paths.driversDir(),
+                        new io.quarkiverse.mcp.servers.jdbc.profile.Settings(paths.settingsFile()).pinnedDrivers()));
         PolicyManifest manifest = new PolicyManifest(paths.root().resolve("policy-manifest.json"), manifestKey);
         Arrays.fill(manifestKey, (byte) 0);
         this.approvals = new io.quarkiverse.mcp.servers.jdbc.change.ApprovalService(paths.approvalsDir(), approvalKey,

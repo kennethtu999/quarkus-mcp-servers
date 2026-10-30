@@ -166,4 +166,108 @@ class EncryptedProfileStoreTest {
         Files.createSymbolicLink(link, config);
         assertThatThrownBy(() -> FilePerms.verifyDir(link)).isInstanceOf(FilePerms.InsecurePermissionsException.class);
     }
+
+    // ---- key rotation (A22 / A18) ----
+
+    @Test
+    void rotationReEncryptsUnderTheNewKeyAndTheOldKeyStopsWorking() throws Exception {
+        store.write(two());
+        byte[] oldKey = keys.key.clone();
+        byte[] oldCiphertext = Files.readAllBytes(config.resolve("profiles.enc"));
+        byte[] fresh = new byte[32];
+        new java.security.SecureRandom().nextBytes(fresh);
+
+        store.rotateKey(fresh);
+
+        assertThat(keys.key).isEqualTo(fresh).isNotEqualTo(oldKey);
+        assertThat(store.read()).extracting(DbProfile::label).containsExactly("DB2-DEV", "PG-DEV");
+        assertThat(new String(store.read().get(0).passwordCopy())).isEqualTo(SENTINEL_PASSWORD);
+        assertThat(Files.readAllBytes(config.resolve("profiles.enc"))).isNotEqualTo(oldCiphertext);
+
+        // the old key can no longer open the new file
+        EncryptedProfileStore withOld = new EncryptedProfileStore(config, new MemoryKeys(oldKey));
+        assertThatThrownBy(withOld::read).isInstanceOf(StoreException.class);
+    }
+
+    @Test
+    void rotationKeepsAnOldGenerationThatOnlyTheOldKeyOpens() throws Exception {
+        store.write(two());
+        byte[] oldKey = keys.key.clone();
+        store.rotateKey(randomKey());
+
+        Path pre = config.resolve("backups").resolve("profiles.enc.pre-rotation");
+        FilePerms.verifyFile(pre);
+        Path restore = Files.createDirectories(tmp.resolve("restore2"));
+        Files.copy(pre, restore.resolve("profiles.enc"));
+        assertThat(new EncryptedProfileStore(restore, new MemoryKeys(oldKey)).read()).hasSize(2);
+        assertThatThrownBy(() -> new EncryptedProfileStore(restore, keys).read()).isInstanceOf(StoreException.class);
+    }
+
+    @Test
+    void rotationRefusesToStartWhenTheCurrentStoreCannotBeRead() throws Exception {
+        store.write(two());
+        byte[] before = Files.readAllBytes(config.resolve("profiles.enc"));
+        byte[] keyBefore = keys.key.clone();
+
+        keys.available = false; // e.g. keychain locked
+        assertThatThrownBy(() -> store.rotateKey(randomKey())).isInstanceOf(StoreException.class);
+        keys.available = true;
+
+        assertThat(Files.readAllBytes(config.resolve("profiles.enc"))).isEqualTo(before);
+        assertThat(keys.key).isEqualTo(keyBefore);
+        assertThat(store.read()).hasSize(2);
+    }
+
+    @Test
+    void rotationRejectsABadKey() throws Exception {
+        store.write(two());
+        assertThatThrownBy(() -> store.rotateKey(new byte[16])).isInstanceOf(StoreException.class);
+        assertThatThrownBy(() -> store.rotateKey(null)).isInstanceOf(StoreException.class);
+        assertThat(store.read()).hasSize(2);
+    }
+
+    @Test
+    void ifTheFileCannotBeSwappedTheOldKeyIsRestoredAndNothingIsLost() throws Exception {
+        store.write(two());
+        byte[] oldKey = keys.key.clone();
+        byte[] before = Files.readAllBytes(config.resolve("profiles.enc"));
+
+        // A provider that, the moment the NEW key is stored (which happens just before the file swap), makes the config
+        // directory read-only so the swap fails. That is the exact window the restore logic exists for.
+        java.util.List<byte[]> stored = new java.util.ArrayList<>();
+        MemoryKeys sabotaging = new MemoryKeys(oldKey.clone()) {
+            @Override
+            public void store(byte[] newKey) {
+                super.store(newKey);
+                stored.add(newKey.clone());
+                if (stored.size() == 1) { // first store = the new key; the second would be the restore
+                    try {
+                        Files.setPosixFilePermissions(config,
+                                java.nio.file.attribute.PosixFilePermissions.fromString("r-x------"));
+                    } catch (java.io.IOException e) {
+                        throw new IllegalStateException(e);
+                    }
+                }
+            }
+        };
+        EncryptedProfileStore s = new EncryptedProfileStore(config, sabotaging);
+        try {
+            assertThatThrownBy(() -> s.rotateKey(randomKey())).isInstanceOf(StoreException.class)
+                    .hasMessageContaining("previous key was restored");
+        } finally {
+            Files.setPosixFilePermissions(config, java.nio.file.attribute.PosixFilePermissions.fromString("rwx------"));
+        }
+
+        assertThat(stored).as("the new key was stored once, then the old key was put back").hasSize(2);
+        assertThat(stored.get(1)).isEqualTo(oldKey);
+        assertThat(sabotaging.key).isEqualTo(oldKey);
+        assertThat(Files.readAllBytes(config.resolve("profiles.enc"))).as("ciphertext untouched").isEqualTo(before);
+        assertThat(new EncryptedProfileStore(config, new MemoryKeys(oldKey)).read()).hasSize(2);
+    }
+
+    private static byte[] randomKey() {
+        byte[] k = new byte[32];
+        new java.security.SecureRandom().nextBytes(k);
+        return k;
+    }
 }

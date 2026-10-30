@@ -24,6 +24,7 @@ public class GatewayMain {
      */
     public static CommandLine commandLine() {
         CommandLine cmd = new CommandLine(new RootCommand());
+        enableHelp(cmd);
         cmd.setExecutionExceptionHandler((ex, commandLine, parseResult) -> {
             System.err.println("Error: " + ex.getMessage());
             if (System.getenv("AI_DB_MCP_DEBUG") != null) {
@@ -32,5 +33,11 @@ public class GatewayMain {
             return 1;
         });
         return cmd;
+    }
+
+    /** Every command at every depth answers {@code --help}, not just the root. */
+    private static void enableHelp(CommandLine cmd) {
+        cmd.getCommandSpec().mixinStandardHelpOptions(true);
+        cmd.getSubcommands().values().forEach(GatewayMain::enableHelp);
     }
 }

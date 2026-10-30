@@ -142,6 +142,74 @@ public final class EncryptedProfileStore {
         }
     }
 
+    /**
+     * Re-encrypts the store under {@code newMasterKey} and makes it the provider's key.
+     * <p>
+     * Order matters so that no step can lose data: the current store is decrypted with the current key first (proving it is
+     * readable), the new ciphertext is written to a temp file, and only then is the new key stored and the file swapped in.
+     * If swapping fails the previous key is put back. The previous ciphertext is kept as {@code profiles.enc.pre-rotation};
+     * it can only be opened with the OLD key, so keep a copy of that key until the rotation is confirmed.
+     */
+    public void rotateKey(byte[] newMasterKey) throws StoreException {
+        if (newMasterKey == null || newMasterKey.length != 32) {
+            throw new StoreException("A 32-byte key is required");
+        }
+        byte[] oldMaster = null;
+        byte[] newStoreKey = null;
+        byte[] plain = null;
+        try {
+            List<DbProfile> profiles = read();
+            oldMaster = keys.load();
+            plain = serialize(profiles);
+            profiles.forEach(DbProfile::wipe);
+            newStoreKey = Hkdf.derive(newMasterKey, "ai-db-mcp/profile-store", 32);
+            byte[] sealed = AesGcmEnvelope.seal(newStoreKey, keys.keyId(), plain);
+
+            Path dir = file.toAbsolutePath().getParent();
+            Path tmp = Files.createTempFile(dir, "profiles", ".tmp");
+            try {
+                FilePerms.restrictFile(tmp);
+                try (FileChannel ch = FileChannel.open(tmp, StandardOpenOption.WRITE)) {
+                    ch.write(ByteBuffer.wrap(sealed));
+                    ch.force(true);
+                }
+                Path pre = dir.resolve("backups").resolve("profiles.enc.pre-rotation");
+                FilePerms.ensureSecureDir(pre.getParent());
+                Files.copy(file, pre, StandardCopyOption.REPLACE_EXISTING);
+                FilePerms.restrictFile(pre);
+
+                keys.store(newMasterKey);
+                try {
+                    Files.move(tmp, file, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } catch (IOException e) {
+                    // The file still holds the old ciphertext, so the old key must stay current.
+                    try {
+                        keys.store(oldMaster);
+                    } catch (MasterKeyProvider.KeyUnavailableException restoreFailed) {
+                        throw new StoreException("Rotation failed AND the previous key could not be restored. "
+                                + "profiles.enc is still encrypted with the OLD key; put that key back before doing anything else.");
+                    }
+                    throw new StoreException("Could not replace profiles.enc; the previous key was restored");
+                }
+            } finally {
+                // Best effort only: a failure here must never replace the real outcome of the rotation.
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (IOException ignored) {
+                    // a leftover temp file is harmless; it is encrypted and owner-only
+                }
+            }
+        } catch (MasterKeyProvider.KeyUnavailableException e) {
+            throw new StoreException("Master key is not available: " + e.getMessage());
+        } catch (IOException e) {
+            throw new StoreException("Cannot rotate: " + e.getClass().getSimpleName());
+        } finally {
+            wipe(oldMaster);
+            wipe(newStoreKey);
+            wipe(plain);
+        }
+    }
+
     private void backupCurrent() throws IOException {
         if (!Files.exists(file)) {
             return;

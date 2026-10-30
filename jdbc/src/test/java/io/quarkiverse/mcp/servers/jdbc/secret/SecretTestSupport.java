@@ -18,7 +18,7 @@ public final class SecretTestSupport {
     }
 
     /** In-memory key provider so crypto tests do not depend on the OS keychain. */
-    public static final class MemoryKeys implements MasterKeyProvider {
+    public static class MemoryKeys implements MasterKeyProvider {
         public byte[] key;
         public boolean available = true;
 

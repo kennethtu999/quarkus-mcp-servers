@@ -87,6 +87,11 @@ public final class DriverLoader {
         throw new DriverUnavailableException("No pinned driver jar provides " + className);
     }
 
+    /** SHA-256 of a file as lower-case hex; used both to verify a pin and to create one. */
+    public static String sha256Of(Path file) {
+        return sha256(file);
+    }
+
     static String sha256(Path file) {
         try (InputStream in = Files.newInputStream(file)) {
             MessageDigest md = MessageDigest.getInstance("SHA-256");
