@@ -6,7 +6,7 @@
       "java": "17+"
     },
     "jdbc": {
-      "script-ref": "jdbc/.scripts/mcpjdbc.java",
+      "script-ref": "io.quarkiverse.mcp.servers:mcp-server-jdbc:RELEASE@fatjar",
       "java": "17+"
     },
     "jfx-script": {

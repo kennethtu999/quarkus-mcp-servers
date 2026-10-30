@@ -9,10 +9,13 @@
         <version>999-SNAPSHOT</version>
     </parent>
 
-    <name>MCP Servers :: JDBC</name>
+    <name>MCP Servers :: AI Database MCP Gateway</name>
 
     <properties>
-
+        <jsqlparser.version>5.4</jsqlparser.version>
+        <java-keyring.version>1.0.4</java-keyring.version>
+        <!-- IBM JCC is never bundled by default (redistribution licence); see the bundle-db2 profile. -->
+        <db2-jcc.version>12.1.5.0_special_89304</db2-jcc.version>
     </properties>
 
     <dependencyManagement>
@@ -28,28 +31,63 @@
     </dependencyManagement>
 
     <dependencies>
-        <dependency>
-            <groupId>io.quarkiverse.mcp.servers</groupId>
-            <artifactId>mcp-server-shared</artifactId>
-            <version>${project.version}</version>
-        </dependency>
+        <!--
+            Deliberately no dependency on mcp-server-shared: its McpCliConfigSource turns every
+            command line argument of the form key=value into configuration (and mis-parses values containing
+            an equals sign), which is not acceptable for a gateway whose credentials must never travel as arguments.
+        -->
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-jackson</artifactId>
         </dependency>
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-qute</artifactId>
-        </dependency>
-        <dependency>
-            <groupId>io.quarkus</groupId>
             <artifactId>quarkus-arc</artifactId>
         </dependency>
-
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.fasterxml.jackson.dataformat</groupId>
+            <artifactId>jackson-dataformat-yaml</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.jsqlparser</groupId>
+            <artifactId>jsqlparser</artifactId>
+            <version>${jsqlparser.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.agroal</groupId>
+            <artifactId>agroal-pool</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.github.javakeyring</groupId>
+            <artifactId>java-keyring</artifactId>
+            <version>${java-keyring.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+        </dependency>
 
         <dependency>
             <groupId>io.quarkus</groupId>
             <artifactId>quarkus-junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.h2database</groupId>
+            <artifactId>h2</artifactId>
             <scope>test</scope>
         </dependency>
     </dependencies>
@@ -112,40 +150,15 @@
         </plugins>
     </build>
 
-
     <profiles>
+        <!-- Internal builds licensed to redistribute IBM JCC only. Default builds load the driver from drivers/. -->
         <profile>
-            <id>h2</id>
+            <id>bundle-db2</id>
             <dependencies>
                 <dependency>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-jdbc-h2</artifactId>
-                </dependency>
-            </dependencies>
-            <properties>
-                <jvm.args>-Djdbc.url=jdbc:h2:mem:testdb</jvm.args>
-            </properties>
-        </profile>
-        <profile>
-            <id>postgresql</id>
-            <dependencies>
-                <dependency>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-jdbc-postgresql</artifactId>
-                </dependency>
-            </dependencies>
-            <!-- assume running container with postgres : i.e. podman run -p 5432:5432 -d sakiladb/postgres:latest-->
-            <properties>
-                <jvm.args>-Djdbc.url=jdbc:postgresql://localhost:5432/sakila?user=sakila&amp;password=p_ssW0rd
-                </jvm.args>
-            </properties>
-        </profile>
-        <profile>
-            <id>sqlite</id>
-            <dependencies>
-                <dependency>
-                    <groupId>io.quarkus</groupId>
-                    <artifactId>quarkus-jdbc-sqlite</artifactId>
+                    <groupId>com.ibm.db2</groupId>
+                    <artifactId>jcc</artifactId>
+                    <version>${db2-jcc.version}</version>
                 </dependency>
             </dependencies>
         </profile>
