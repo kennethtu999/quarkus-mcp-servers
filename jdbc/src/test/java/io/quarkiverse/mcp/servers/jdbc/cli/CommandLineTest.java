@@ -235,6 +235,99 @@ class CommandLineTest {
         assertThat(opt.paramLabel()).isEqualTo("keyfile:<path>");
     }
 
+    // ---- administrative audit ----
+
+    private java.util.List<com.fasterxml.jackson.databind.JsonNode> auditEvents(Path cfg) throws Exception {
+        Path log = cfg.resolve("logs").resolve("audit.jsonl");
+        if (!Files.exists(log)) {
+            return java.util.List.of();
+        }
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        java.util.List<com.fasterxml.jackson.databind.JsonNode> out = new java.util.ArrayList<>();
+        for (String l : Files.readAllLines(log)) {
+            out.add(mapper.readTree(l));
+        }
+        return out;
+    }
+
+    @Test
+    void stateChangingCommandsAreAuditedAndReadOnlyOnesAreNot() throws Exception {
+        Path cfg = tmp.resolve("cfg"), key = tmp.resolve("k").resolve("master.key");
+        init(cfg, key);
+        run("", concat(new String[] { "profile", "list" }, common(cfg, key)));
+        run("", concat(new String[] { "profile", "show", "PG-DEV" }, common(cfg, key)));
+        run("", concat(new String[] { "policy", "show", "PG-DEV" }, common(cfg, key)));
+        run("", concat(new String[] { "policy", "validate", "PG-DEV", "--offline" }, common(cfg, key)));
+        run("", concat(new String[] { "profile", "disable", "PG-DEV" }, common(cfg, key)));
+        run("", concat(new String[] { "profile", "enable", "PG-DEV" }, common(cfg, key)));
+        run("", concat(new String[] { "policy", "reload", "PG-DEV", "--offline" }, common(cfg, key)));
+        run("", concat(new String[] { "profile", "rename", "PG-DEV", "PG-NEW" }, common(cfg, key)));
+        run("", concat(new String[] { "key", "rotate" }, common(cfg, key)));
+
+        var events = auditEvents(cfg);
+        assertThat(events).extracting(e -> e.get("tool").asText()).containsExactly("cli:init", "cli:profile.disable",
+                "cli:profile.enable", "cli:policy.reload", "cli:profile.rename", "cli:key.rotate");
+        assertThat(events).allSatisfy(e -> {
+            assertThat(e.get("result").asText()).isEqualTo("OK");
+            assertThat(e.get("actorId").asText()).isEqualTo("local-admin");
+        });
+        assertThat(events.get(1).get("target").asText()).isEqualTo("PG-DEV");
+        assertThat(events.get(4).get("target").asText()).isEqualTo("PG-DEV");
+        assertThat(io.quarkiverse.mcp.servers.jdbc.audit.AuditService.verify(cfg.resolve("logs").resolve("audit.jsonl")))
+                .as("the chain stays valid across many short-lived processes").isZero();
+    }
+
+    @Test
+    void failedAdminCommandsAreAuditedToo() throws Exception {
+        Path cfg = tmp.resolve("cfg"), key = tmp.resolve("k").resolve("master.key");
+        init(cfg, key);
+        Run r = run("", concat(new String[] { "profile", "disable", "NO-SUCH" }, common(cfg, key)));
+        assertThat(r.exit).isNotZero();
+        var last = auditEvents(cfg).get(auditEvents(cfg).size() - 1);
+        assertThat(last.get("tool").asText()).isEqualTo("cli:profile.disable");
+        assertThat(last.get("result").asText()).isIn("ERROR", "FAILED");
+        assertThat(last.get("target").asText()).isEqualTo("NO-SUCH");
+    }
+
+    @Test
+    void theAdminAuditNeverContainsASecretOrAnOptionValue() throws Exception {
+        Path cfg = tmp.resolve("cfg"), key = tmp.resolve("k").resolve("master.key");
+        init(cfg, key);
+        run("CLI-ROTATED-SENTINEL\n", concat(new String[] { "profile", "rotate-password", "PG-DEV", "--password-stdin",
+                "--skip-connection-test" }, common(cfg, key)));
+        run("", concat(new String[] { "driver", "pin", "x.jar" }, common(cfg, key)));
+        String log = Files.readString(cfg.resolve("logs").resolve("audit.jsonl"));
+        assertThat(log).contains("cli:profile.rotate-password").doesNotContain("CLI-ROTATED-SENTINEL")
+                .doesNotContain("CLI-TEST-SENTINEL-pw").doesNotContain("pg.example.internal").doesNotContain("ai_user")
+                .doesNotContain(cfg.toString()).doesNotContain(key.toString()).doesNotContain("keyfile");
+    }
+
+    @Test
+    void helpRequestsAreNotAudited() throws Exception {
+        Path cfg = tmp.resolve("cfg"), key = tmp.resolve("k").resolve("master.key");
+        init(cfg, key);
+        int before = auditEvents(cfg).size();
+        run("", "profile", "disable", "--help");
+        assertThat(auditEvents(cfg)).hasSize(before);
+    }
+
+    @Test
+    void everyCommandThatChangesStateIsOnTheAuditedList() {
+        // Guards the list in AdminAudit: a new mutating command must be added there. Read-only commands are listed explicitly
+        // so that adding any other command makes this test fail until someone decides which kind it is.
+        Set<String> readOnly = Set.of("profile list", "profile show", "profile test", "policy validate", "policy show",
+                "backup create", "driver list", "start");
+        Set<String> groups = Set.of("profile", "policy", "key", "backup", "driver");
+        for (CommandLine c : collect(GatewayMain.commandLine())) {
+            String path = c.getCommandSpec().qualifiedName(" ").replaceFirst("^ai-db-mcp ?", "");
+            if (path.isEmpty() || groups.contains(path)) {
+                continue;
+            }
+            assertThat(AdminAudit.AUDITED.contains(path) || readOnly.contains(path))
+                    .as("command '" + path + "' must be classified as audited or read-only").isTrue();
+        }
+    }
+
     @Test
     void failuresArePrintedAsOneLineWithoutAStackTrace() {
         Path cfg = tmp.resolve("cfg"), key = tmp.resolve("k").resolve("master.key");

@@ -176,6 +176,15 @@ not decrypt.
 | Change a password | `ai-db-mcp profile rotate-password <L>` (the new one is tested before the old one is replaced) |
 | Rename | `ai-db-mcp profile rename <OLD> <NEW>` (policy file moves with it; the immutable `profileId` does not change) |
 | Disable / enable / remove | `profile disable <L>`, `profile enable <L>`, `profile remove <L>` (the policy file is kept) |
+
+**Changes take effect in a running server immediately.** `profile disable`, `rotate-password`, `rename`, `remove` and `add` rewrite
+`profiles.enc`; a running `start` notices before its next tool call and rebuilds the affected connection pools. If `profiles.enc`
+cannot be read at that moment (key gone, file damaged) the server refuses everything until it can, rather than continuing with the
+last copy it had - a profile you just disabled must not keep working.
+
+Administrative commands that change state (`init`, `profile add/rotate-password/rename/enable/disable/remove`, `policy reload`,
+`key rotate`, `backup restore`, `driver pin/unpin`, `approve`) are recorded in `logs/audit.jsonl`, together with the tool calls.
+Only the command and its first argument (a label) are recorded - never an option value.
 | Trust a Db2 driver jar | `ai-db-mcp driver pin <jar>`, `driver list`, `driver unpin <jar>` |
 | Rotate the master key | `ai-db-mcp key rotate` (re-encrypts, then reloads all policies; pending approvals become invalid) |
 | Back up | `ai-db-mcp backup create <dir>` - **back up the master key separately** |

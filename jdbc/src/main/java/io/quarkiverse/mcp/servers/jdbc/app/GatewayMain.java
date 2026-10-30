@@ -25,6 +25,7 @@ public class GatewayMain {
     public static CommandLine commandLine() {
         CommandLine cmd = new CommandLine(new RootCommand());
         enableHelp(cmd);
+        cmd.setExecutionStrategy(new io.quarkiverse.mcp.servers.jdbc.cli.AdminAudit());
         cmd.setExecutionExceptionHandler((ex, commandLine, parseResult) -> {
             System.err.println("Error: " + ex.getMessage());
             if (System.getenv("AI_DB_MCP_DEBUG") != null) {

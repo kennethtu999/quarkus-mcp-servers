@@ -41,6 +41,13 @@ public final class QueryService {
     public String listProfiles() {
         // No profile reference here, so this does not go through run(); it is still audited.
         var ctx = gateway.context();
+        String unavailable = ctx.sync.refresh();
+        if (unavailable != null) {
+            gateway.audit().record(io.quarkiverse.mcp.servers.jdbc.audit.AuditEvent.of("db_list_profiles").actor("local-user")
+                    .operation("LIST").decision("DENY").code("PROFILES_UNAVAILABLE").result("DENIED"));
+            throw new io.quarkiverse.mcp.server.ToolCallException(
+                    "Profiles cannot be read right now; ask the administrator to check the gateway", null);
+        }
         List<Map<String, Object>> out = new ArrayList<>();
         for (var p : ctx.registry.all()) {
             var snap = ctx.policies.current(p);

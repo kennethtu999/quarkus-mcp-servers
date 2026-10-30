@@ -32,4 +32,5 @@ available). Each must be run once against the real engines before the gateway is
 | Function allow-lists | Each listed function exists with the expected semantics in that engine | `FunctionAllowlists` |
 | `IS_AUTOINCREMENT` / `IS_GENERATEDCOLUMN` | Reported by each driver so generated columns are refused | `MetadataService.columns` |
 | macOS Keychain with an unsigned JVM | Whether a prompt appears and how it behaves headless | `KeyringMasterKeyProvider` |
+| Profile change detection on a shared/network file system | A running server notices `profiles.enc` changes by inode+size+mtime (content hash if the file system has no file key); verify on the file system you use | `ProfileSync` |
 

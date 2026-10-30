@@ -38,6 +38,7 @@ public final class GatewayContext {
     public final PolicyRepository policies;
     public final PermissionService permissions;
     public final ProfileManager profiles;
+    public final io.quarkiverse.mcp.servers.jdbc.profile.ProfileSync sync;
     public final io.quarkiverse.mcp.servers.jdbc.change.ApprovalService approvals;
 
     private GatewayContext(ConfigPaths paths, MasterKeyProvider keys, boolean requireTls, boolean createKey,
@@ -74,6 +75,7 @@ public final class GatewayContext {
         this.profiles = new ProfileManager(paths, store, registry,
                 new ProfileValidator(new JdbcUrlGuard(java.util.Set.of(), requireTls)),
                 connections, policies);
+        this.sync = new io.quarkiverse.mcp.servers.jdbc.profile.ProfileSync(paths.profilesFile(), store, registry, connections);
     }
 
     /**

@@ -51,6 +51,7 @@ public class StartCommand implements Callable<Integer> {
         }
         System.err.println("ai-db-mcp: " + ctx.profiles.list().size() + " profile(s) loaded from " + ctx.paths.root());
 
+        ctx.sync.markCurrent();
         GatewayRuntime.set(ctx);
         Quarkus.run(GatewayApp.class);
         return 0;

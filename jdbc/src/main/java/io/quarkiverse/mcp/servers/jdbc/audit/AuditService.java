@@ -51,7 +51,6 @@ public final class AuditService {
     private final long maxBytes;
     private final int keep;
     private final Object lock = new Object();
-    private String lastHash;
 
     public AuditService(Path logsDir) {
         this(logsDir, Clock.systemDefaultZone(), DEFAULT_MAX_BYTES, DEFAULT_KEEP);
@@ -84,7 +83,7 @@ public final class AuditService {
             try (FileChannel lockCh = FileChannel.open(dir.resolve(".audit.lock"), StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE); FileLock ignored = lockCh.lock()) {
                 rotateIfNeeded();
-                String prev = lastHash != null ? lastHash : hashOfLastLine();
+                String prev = hashOfLastLine(); // always from the file: another process may have written since we last did
 
                 ObjectNode node = JSON.createObjectNode();
                 node.put("timestamp", OffsetDateTime.now(clock).toString());
@@ -107,7 +106,6 @@ public final class AuditService {
                 if (isNew) {
                     FilePerms.restrictFile(file);
                 }
-                lastHash = sha256(line);
             }
         }
     }
@@ -137,9 +135,7 @@ public final class AuditService {
         String stamp = OffsetDateTime.now(clock).toString().replaceAll("[^0-9]", "");
         Path rotated = file.resolveSibling(String.format("audit-%012d-%s.jsonl", nextSequence(), stamp));
         // The chain continues across the rotation: the first line of the new file points at the last of the old one.
-        String carried = lastLineHash(file);
         Files.move(file, rotated, StandardCopyOption.ATOMIC_MOVE);
-        lastHash = carried;
         List<Path> all = rotatedFiles();
         for (int i = 0; i < all.size() - keep; i++) {
             Files.deleteIfExists(all.get(i));
@@ -163,16 +159,33 @@ public final class AuditService {
         }
     }
 
+    /**
+     * Hash of the newest line, read from disk under the file lock. After a rotation the active file does not exist yet, so
+     * the chain continues from the newest rotated file.
+     */
     private String hashOfLastLine() throws IOException {
-        Path source = Files.exists(file) ? file : latestRotated();
-        return source == null ? "genesis" : lastLineHash(source);
+        if (Files.exists(file) && Files.size(file) > 0) {
+            return lastLineHash(file);
+        }
+        Path rotated = latestRotated();
+        return rotated == null ? "genesis" : lastLineHash(rotated);
     }
 
     private static String lastLineHash(Path source) throws IOException {
-        List<String> lines = Files.readAllLines(source, StandardCharsets.UTF_8);
-        for (int i = lines.size() - 1; i >= 0; i--) {
-            if (!lines.get(i).isBlank()) {
-                return sha256(lines.get(i));
+        // A line is at most a few KB; reading the last 64 KB is enough and avoids re-reading a 10 MB log on every write.
+        try (java.io.RandomAccessFile f = new java.io.RandomAccessFile(source.toFile(), "r")) {
+            long len = f.length();
+            long start = Math.max(0, len - 64 * 1024);
+            byte[] buf = new byte[(int) (len - start)];
+            f.seek(start);
+            f.readFully(buf);
+            String tail = new String(buf, StandardCharsets.UTF_8);
+            String[] lines = tail.split("\n");
+            for (int i = lines.length - 1; i >= 0; i--) {
+                // when the window starts mid-file, the first line may be cut; it is never the last non-blank line
+                if (!lines[i].isBlank() && (i > 0 || start == 0)) {
+                    return sha256(lines[i]);
+                }
             }
         }
         return "genesis";

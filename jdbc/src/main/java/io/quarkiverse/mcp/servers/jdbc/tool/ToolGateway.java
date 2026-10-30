@@ -86,10 +86,15 @@ public final class ToolGateway {
     public <T> T run(String tool, String operation, String profileRef, Body<T> body) {
         long start = System.nanoTime();
         AuditEvent event = AuditEvent.of(tool).actor(ACTOR).operation(operation);
-        DbProfile profile = ctx.registry.resolve(profileRef).orElse(null);
+        String unavailable = ctx.sync.refresh();
+        DbProfile profile = unavailable != null ? null : ctx.registry.resolve(profileRef).orElse(null);
         Call call = new Call(profile, event);
         event.requestId(call.requestId);
         try {
+            if (unavailable != null) {
+                throw new Denied("PROFILES_UNAVAILABLE",
+                        "Profiles cannot be read right now; ask the administrator to check the gateway");
+            }
             if (profile == null) {
                 throw new Denied("UNKNOWN_PROFILE", "No such profile");
             }

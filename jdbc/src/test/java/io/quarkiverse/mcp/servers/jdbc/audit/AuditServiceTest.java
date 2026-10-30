@@ -259,6 +259,20 @@ class AuditServiceTest {
     }
 
     @Test
+    void twoProcessesWritingTheSameLogKeepOneValidChain() throws Exception {
+        // Two independent AuditService instances stand in for two processes (the running server and an admin command):
+        // each has its own in-memory state and only the file and its lock are shared.
+        AuditService server = new AuditService(logs);
+        AuditService admin = new AuditService(logs);
+        for (int i = 0; i < 10; i++) {
+            server.record(sample("db_query").detail("server-" + i));
+            admin.record(sample("profile.disable").detail("admin-" + i));
+        }
+        assertThat(read(server.file())).hasSize(20);
+        assertThat(AuditService.verify(server.file())).as("interleaved writers must not break the chain").isZero();
+    }
+
+    @Test
     void concurrentWritersProduceAValidChain() throws Exception {
         Thread[] threads = new Thread[8];
         for (int t = 0; t < threads.length; t++) {

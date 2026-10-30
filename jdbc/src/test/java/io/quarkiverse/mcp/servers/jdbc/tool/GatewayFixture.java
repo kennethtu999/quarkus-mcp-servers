@@ -87,6 +87,7 @@ public final class GatewayFixture implements AutoCloseable {
         List<DbProfile> all = new java.util.ArrayList<>(ctx.registry.all());
         all.add(p);
         ctx.registry.replaceAll(all);
+        persist();
         if (policyBody != null) {
             writePolicy(p, policyBody);
             if (activate) {
@@ -94,6 +95,51 @@ public final class GatewayFixture implements AutoCloseable {
             }
         }
         return p;
+    }
+
+    /**
+     * Writes the registry to the real encrypted {@code profiles.enc} and records it as the state the running server has
+     * seen, exactly as {@code start} does. Without a store on disk the server (correctly) refuses everything.
+     */
+    public void persist() throws Exception {
+        ctx.store.write(ctx.registry.all());
+        ctx.sync.markCurrent();
+    }
+
+    /**
+     * What an administrative command running in ANOTHER process does: it has its own objects, opens the same store with the
+     * same key, and rewrites {@code profiles.enc}. The running server (this fixture's {@code ctx}) is not told.
+     */
+    public io.quarkiverse.mcp.servers.jdbc.profile.ProfileManager otherProcess() throws Exception {
+        var store = new io.quarkiverse.mcp.servers.jdbc.secret.EncryptedProfileStore(paths.root(), ctx.keys);
+        var registry = new io.quarkiverse.mcp.servers.jdbc.profile.ProfileRegistry();
+        var admin = new io.quarkiverse.mcp.servers.jdbc.profile.ProfileManager(paths, store, registry,
+                new io.quarkiverse.mcp.servers.jdbc.profile.ProfileValidator(
+                        io.quarkiverse.mcp.servers.jdbc.database.JdbcUrlGuard.strict()),
+                connectionManager(d -> org.h2.Driver.class), ctx.policies);
+        admin.load();
+        return admin;
+    }
+
+    /**
+     * Another process updating one profile in the store, without URL validation (the stand-in database uses a jdbc:h2: URL that
+     * the real guard correctly refuses for an Oracle profile). What is under test here is that the running server notices; URL
+     * validation has its own tests.
+     */
+    public void otherProcessReplaces(java.util.function.UnaryOperator<DbProfile> change) throws Exception {
+        var store = new io.quarkiverse.mcp.servers.jdbc.secret.EncryptedProfileStore(paths.root(), ctx.keys);
+        java.util.List<DbProfile> next = new java.util.ArrayList<>();
+        for (DbProfile existing : store.read()) {
+            next.add(change.apply(existing));
+        }
+        store.write(next);
+    }
+
+    public void otherProcessAdds(DbProfile added) throws Exception {
+        var store = new io.quarkiverse.mcp.servers.jdbc.secret.EncryptedProfileStore(paths.root(), ctx.keys);
+        java.util.List<DbProfile> next = new java.util.ArrayList<>(store.read());
+        next.add(added);
+        store.write(next);
     }
 
     public void writePolicy(DbProfile p, String body) throws Exception {
