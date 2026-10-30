@@ -168,10 +168,11 @@ class QueryServiceTest {
     @Test
     void listTablesIsPagedAndHidesSystemSchemas() throws Exception {
         JsonNode all = JSON.readTree(fx.queries.listTables(ro.label(), "APP", null, null));
-        assertThat(all.get("totalCount").asInt()).isEqualTo(3);
-        assertThat(all.get("tables")).extracting(n -> n.get("name").asText()).containsExactly("CUSTOMERS", "ORDERS", "USERS");
+        assertThat(all.get("totalCount").asInt()).isEqualTo(4);
+        assertThat(all.get("tables")).extracting(n -> n.get("name").asText()).containsExactly("CUSTOMERS", "ORDERS", "TAGS",
+                "USERS");
 
-        JsonNode page = JSON.readTree(fx.queries.listTables(ro.label(), "APP", 2, 2));
+        JsonNode page = JSON.readTree(fx.queries.listTables(ro.label(), "APP", 2, 3));
         assertThat(page.get("tables")).hasSize(1);
         assertThat(page.get("tables").get(0).get("name").asText()).isEqualTo("USERS");
         assertThat(page.get("page").asInt()).isEqualTo(2);

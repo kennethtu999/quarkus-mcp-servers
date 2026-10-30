@@ -39,6 +39,7 @@ public final class GatewayContext {
     public final PolicyRepository policies;
     public final PermissionService permissions;
     public final ProfileManager profiles;
+    public final io.quarkiverse.mcp.servers.jdbc.change.ApprovalService approvals;
 
     private GatewayContext(ConfigPaths paths, MasterKeyProvider keys, boolean requireTls, boolean createKey,
             ConnectionManager connectionsOverride) throws IOException {
@@ -48,9 +49,11 @@ public final class GatewayContext {
 
         byte[] master = null;
         byte[] manifestKey;
+        byte[] approvalKey;
         try {
             master = createKey ? keys.loadOrCreate() : keys.load();
             manifestKey = Hkdf.derive(master, "ai-db-mcp/policy-manifest", 32);
+            approvalKey = Hkdf.derive(master, "ai-db-mcp/approvals", 32);
         } catch (MasterKeyProvider.KeyUnavailableException e) {
             throw new IOException("Master key is not available: " + e.getMessage(), e);
         } finally {
@@ -63,6 +66,9 @@ public final class GatewayContext {
                 : new ConnectionManager(new DriverLoader(paths.driversDir(), Map.of()));
         PolicyManifest manifest = new PolicyManifest(paths.root().resolve("policy-manifest.json"), manifestKey);
         Arrays.fill(manifestKey, (byte) 0);
+        this.approvals = new io.quarkiverse.mcp.servers.jdbc.change.ApprovalService(paths.approvalsDir(), approvalKey,
+                java.time.Clock.systemUTC());
+        Arrays.fill(approvalKey, (byte) 0);
         this.policies = new PolicyRepository(paths.permissionsDir(), manifest);
         this.permissions = new PermissionService(policies);
         this.profiles = new ProfileManager(paths, store, registry,

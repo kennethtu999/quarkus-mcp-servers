@@ -15,3 +15,21 @@
 | AI has other filesystem tools | AI could edit policy files | OS ACLs; do not expose the config directory to AI tools | operations |
 | Upstream merge re-enables dangerous tools | Policy bypass | `ToolSurfaceTest` | WP0.1 |
 | Pre-release dependencies (Quarkus 3.35.0.CR1) | Instability | Pin versions; revisit at GA | WP0.1 |
+
+## Items that need a real Db2 / Oracle / PostgreSQL to confirm
+
+These are implemented but could only be unit-tested against H2 on the development machine (no container runtime was
+available). Each must be run once against the real engines before the gateway is used with real data (plan P1/P7).
+
+| Item | What to confirm | Where |
+|---|---|---|
+| Oracle `SET TRANSACTION READ ONLY` | Accepted, and a write inside the transaction is refused | `OracleDialect.readOnlyTransactionStatement`, `QueryExecutor` |
+| `SELECT ... FOR UPDATE` for locking | Works on all three engines without a row-limit clause, inside a manual-commit transaction | `DmlBuilder.lockAndRead` |
+| Db2 `jdbc:db2://host:port/DB:sslConnection=true;` | Connects and verifies the server certificate | `Db2Dialect`, `JdbcUrlGuard` |
+| Oracle `jdbc:oracle:thin:@tcps://host:port/service` | TLS connects with the wallet/truststore the JVM is configured with | `OracleDialect`, `JdbcUrlGuard` |
+| `DatabaseMetaData.getSearchStringEscape()` | Returns the escape character on each driver, so `A_P` matches only itself | `MetadataService.exact` |
+| IBM JCC loaded from `drivers/` | Pinned jar loads and connects (`DriverLoader`) | `DriverLoader` |
+| Function allow-lists | Each listed function exists with the expected semantics in that engine | `FunctionAllowlists` |
+| `IS_AUTOINCREMENT` / `IS_GENERATEDCOLUMN` | Reported by each driver so generated columns are refused | `MetadataService.columns` |
+| macOS Keychain with an unsigned JVM | Whether a prompt appears and how it behaves headless | `KeyringMasterKeyProvider` |
+

@@ -42,9 +42,9 @@ class ToolSurfaceTest {
     }
 
     @Test
-    void scannerSeesTheStubTool() throws Exception {
+    void allSixApprovedToolsArePresentAndNothingElse() throws Exception {
         // guards against the scan silently finding nothing, which would make the tests above vacuous
-        assertThat(scanTools()).contains("db_list_profiles");
+        assertThat(scanTools()).containsExactlyInAnyOrderElementsOf(APPROVED_TOOLS);
     }
 
     private static Set<String> scanTools() throws Exception {

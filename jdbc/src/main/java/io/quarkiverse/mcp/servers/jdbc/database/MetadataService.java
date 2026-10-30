@@ -121,6 +121,33 @@ public final class MetadataService {
         return columns;
     }
 
+    public record Column(String name, int sqlType, String typeName, boolean nullable, boolean autoIncrement,
+            boolean generated) {
+    }
+
+    /** Columns of one table keyed by upper-cased name, spelled exactly as the database spells them. */
+    public static Map<String, Column> columns(Connection conn, DbType type, String schema, String table) throws SQLException {
+        DbDialect dialect = DbDialect.of(type);
+        DatabaseMetaData md = conn.getMetaData();
+        String wantedSchema = dialect.normalizeIdentifier(requireName(schema, "schema"));
+        String wantedTable = dialect.normalizeIdentifier(requireName(table, "table"));
+        Map<String, Column> out = new LinkedHashMap<>();
+        try (ResultSet rs = md.getColumns(null, exact(md, wantedSchema), exact(md, wantedTable), "%")) {
+            while (rs.next()) {
+                if (!wantedSchema.equalsIgnoreCase(rs.getString("TABLE_SCHEM"))
+                        || !wantedTable.equalsIgnoreCase(rs.getString("TABLE_NAME"))) {
+                    continue;
+                }
+                String name = rs.getString("COLUMN_NAME");
+                out.put(name.toUpperCase(Locale.ROOT), new Column(name, rs.getInt("DATA_TYPE"), rs.getString("TYPE_NAME"),
+                        "YES".equalsIgnoreCase(rs.getString("IS_NULLABLE")),
+                        "YES".equalsIgnoreCase(rs.getString("IS_AUTOINCREMENT")),
+                        "YES".equalsIgnoreCase(rs.getString("IS_GENERATEDCOLUMN"))));
+            }
+        }
+        return out;
+    }
+
     /**
      * Resolves the exact spelling of a table in the database (case differs between engines) so that a write can be
      * checked against, and built from, names that came from metadata rather than from the AI.

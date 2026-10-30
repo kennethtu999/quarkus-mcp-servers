@@ -33,6 +33,8 @@ public final class GatewayFixture implements AutoCloseable {
     public final GatewayContext ctx;
     public final ToolGateway gateway;
     public final QueryService queries;
+    public final io.quarkiverse.mcp.servers.jdbc.change.ChangeService changes;
+    public final java.time.Clock clock = java.time.Clock.systemUTC();
     public final AuditService audit;
     private final Connection keepAlive;
     public final String h2Url;
@@ -51,6 +53,7 @@ public final class GatewayFixture implements AutoCloseable {
         this.gateway = new ToolGateway(ctx, audit);
         // H2 stands in for Oracle but does not understand Oracle's SET TRANSACTION READ ONLY (covered by OracleDialectTest).
         this.queries = new QueryService(gateway, t -> null);
+        this.changes = new io.quarkiverse.mcp.servers.jdbc.change.ChangeService(gateway, ctx.approvals);
         seed();
     }
 
@@ -66,10 +69,12 @@ public final class GatewayFixture implements AutoCloseable {
             st.execute("CREATE SCHEMA SYS");
             st.execute("CREATE TABLE SYS.USER$ (NAME VARCHAR(30))");
             st.execute("INSERT INTO SYS.USER$ VALUES ('SYS')");
-            st.execute("CREATE TABLE APP.ORDERS (ID INT PRIMARY KEY, STATUS VARCHAR(20), VERSION INT DEFAULT 1)");
+            st.execute("CREATE TABLE APP.ORDERS (ID INT PRIMARY KEY, STATUS VARCHAR(100), VERSION INT DEFAULT 1)");
             st.execute("INSERT INTO APP.ORDERS SELECT X, 'OPEN', 1 FROM SYSTEM_RANGE(1, 1000)");
             st.execute("CREATE TABLE APP.CUSTOMERS (ID INT PRIMARY KEY, NAME VARCHAR(50))");
             st.execute("INSERT INTO APP.CUSTOMERS VALUES (1, 'ann'), (2, 'bob')");
+            st.execute("CREATE TABLE APP.TAGS (ID INT PRIMARY KEY, GRP VARCHAR(20), LABEL VARCHAR(20))");
+            st.execute("INSERT INTO APP.TAGS VALUES (1, 'g1', 'a'), (2, 'g1', 'b')");
             st.execute("CREATE TABLE APP.USERS (ID INT PRIMARY KEY, EMAIL VARCHAR(50))");
             st.execute("INSERT INTO APP.USERS VALUES (1, 'a@x')");
         }

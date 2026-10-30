@@ -3,12 +3,10 @@ package io.quarkiverse.mcp.servers.jdbc.tool;
 import java.util.List;
 
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.inject.Inject;
 
 import io.quarkiverse.mcp.server.Tool;
 import io.quarkiverse.mcp.server.ToolArg;
-import io.quarkiverse.mcp.server.ToolCallException;
-import io.quarkiverse.mcp.servers.jdbc.app.GatewayRuntime;
-import io.quarkiverse.mcp.servers.jdbc.audit.AuditService;
 
 /**
  * The approved read-side MCP tools. They only forward to {@link QueryService}; every decision lives there so tests do not
@@ -17,19 +15,11 @@ import io.quarkiverse.mcp.servers.jdbc.audit.AuditService;
 @ApplicationScoped
 public class ListProfilesTool {
 
-    private volatile QueryService service;
+    @Inject
+    GatewayServices services;
 
     private QueryService service() {
-        QueryService s = service;
-        if (s == null) {
-            if (!GatewayRuntime.isReady()) {
-                throw new ToolCallException("The gateway is not initialised", null);
-            }
-            var ctx = GatewayRuntime.get();
-            s = new QueryService(new ToolGateway(ctx, new AuditService(ctx.paths.logsDir())));
-            service = s;
-        }
-        return s;
+        return services.queries();
     }
 
     @Tool(name = "db_list_profiles", description = "List the configured database profiles with their label, type, connection status and access mode. Never returns connection details or credentials.")
