@@ -11,8 +11,9 @@ public class CommonOptions implements GatewayContext.RootOptions {
     @Option(names = "--config-dir", description = "Configuration directory (default: AI_DB_MCP_CONFIG_DIR, then the OS default).")
     String configDir;
 
-    @Option(names = "--key-provider", paramLabel = "keyfile:<path>", description = "Where the master key lives. Default is the OS key store. "
-            + "Use keyfile:<path> only on machines without one; the file must be owner-only and outside the config directory.")
+    @Option(names = "--key-provider", paramLabel = "keyfile:<path>", description = "Where the master key lives. Default: AI_DB_MCP_KEY_PROVIDER, "
+            + "then the OS key store. keyfile:<path> is for machines without one (headless Linux); the file must be owner-only "
+            + "and outside the config directory.")
     String keyProvider;
 
     @Option(names = "--allow-insecure-tls", description = "Administrator override: accept JDBC URLs that do not request TLS with certificate verification. Not for production-like data.")
@@ -28,15 +29,26 @@ public class CommonOptions implements GatewayContext.RootOptions {
         return cached;
     }
 
+    /** Environment variable holding the same {@code keyfile:<path>} value; it names a location, never a key. */
+    public static final String KEY_PROVIDER_ENV = "AI_DB_MCP_KEY_PROVIDER";
+
     @Override
     public Path keyFile() {
-        if (keyProvider == null || keyProvider.isBlank()) {
+        String value = keyProvider;
+        if (value == null || value.isBlank()) {
+            value = System.getenv(KEY_PROVIDER_ENV);
+        }
+        return parseKeyProvider(value);
+    }
+
+    static Path parseKeyProvider(String value) {
+        if (value == null || value.isBlank()) {
             return null;
         }
-        if (!keyProvider.startsWith("keyfile:") || keyProvider.length() == "keyfile:".length()) {
-            throw new IllegalArgumentException("--key-provider must be of the form keyfile:<path>");
+        if (!value.startsWith("keyfile:") || value.length() == "keyfile:".length()) {
+            throw new IllegalArgumentException("The key provider must be of the form keyfile:<path>");
         }
-        return Path.of(keyProvider.substring("keyfile:".length()));
+        return Path.of(value.substring("keyfile:".length()));
     }
 
     @Override

@@ -217,6 +217,25 @@ class CommandLineTest {
     }
 
     @Test
+    void keyProviderValueIsParsedStrictly() {
+        assertThat(CommonOptions.parseKeyProvider(null)).isNull();
+        assertThat(CommonOptions.parseKeyProvider("  ")).isNull();
+        assertThat(CommonOptions.parseKeyProvider("keyfile:/etc/ai-db-mcp/master.key"))
+                .isEqualTo(Path.of("/etc/ai-db-mcp/master.key"));
+        for (String bad : new String[] { "keyfile:", "/etc/key", "file:/x", "KEYFILE:/x", "vault:x", "env:SECRET" }) {
+            org.assertj.core.api.Assertions.assertThatThrownBy(() -> CommonOptions.parseKeyProvider(bad)).as(bad)
+                    .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    @Test
+    void theKeyProviderOptionTakesAPathNeverTheKeyItself() {
+        // the option's declared form documents that only a location is accepted
+        var opt = GatewayMain.commandLine().getSubcommands().get("start").getCommandSpec().findOption("--key-provider");
+        assertThat(opt.paramLabel()).isEqualTo("keyfile:<path>");
+    }
+
+    @Test
     void failuresArePrintedAsOneLineWithoutAStackTrace() {
         Path cfg = tmp.resolve("cfg"), key = tmp.resolve("k").resolve("master.key");
         Run r = run("", concat(new String[] { "profile", "list" }, common(cfg, key)));
