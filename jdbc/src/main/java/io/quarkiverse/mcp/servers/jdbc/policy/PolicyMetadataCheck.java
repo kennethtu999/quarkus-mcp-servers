@@ -10,6 +10,7 @@ import java.util.Locale;
 
 import io.quarkiverse.mcp.servers.jdbc.database.ConnectionManager;
 import io.quarkiverse.mcp.servers.jdbc.database.DbDialect;
+import io.quarkiverse.mcp.servers.jdbc.database.MetadataService;
 import io.quarkiverse.mcp.servers.jdbc.policy.PermissionPolicy.WhitelistEntry;
 import io.quarkiverse.mcp.servers.jdbc.profile.DbProfile;
 
@@ -45,6 +46,26 @@ public final class PolicyMetadataCheck {
                     problems.add(e.schema() + "." + e.table() + " is in a system schema and cannot be writable");
                 } else if (!tableExists(md, dialect, e.schema(), e.table())) {
                     problems.add("Table " + e.schema() + "." + e.table() + " does not exist");
+                }
+            }
+            for (var template : policy.write().templates()) {
+                var shape = template.shape();
+                if (PermissionService.isReservedSchema(dialect.systemSchemas(), shape.schema())
+                        || !tableExists(md, dialect, shape.schema(), shape.table())) {
+                    problems.add("SQL template target is missing or reserved: " + template.id());
+                    continue;
+                }
+                var target = MetadataService.resolveTable(c, profile.dbType(), shape.schema(), shape.table());
+                if (target == null) {
+                    problems.add("SQL template target is ambiguous: " + template.id());
+                    continue;
+                }
+                var columns = MetadataService.columns(c, profile.dbType(), target[0], target[1]);
+                for (String name : shape.parameterColumns()) {
+                    var column = columns.get(name.toUpperCase(Locale.ROOT));
+                    if (column == null || (shape.values().contains(name) && (column.generated() || column.autoIncrement()))) {
+                        problems.add("SQL template column is missing or generated: " + template.id());
+                    }
                 }
             }
             c.rollback();

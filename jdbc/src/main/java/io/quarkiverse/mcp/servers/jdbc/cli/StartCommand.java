@@ -11,6 +11,7 @@ import io.quarkiverse.mcp.servers.jdbc.secret.EncryptedProfileStore.StoreExcepti
 import io.quarkus.runtime.Quarkus;
 import picocli.CommandLine.Command;
 import picocli.CommandLine.Mixin;
+import picocli.CommandLine.Option;
 
 /**
  * Starts the stdio MCP server.
@@ -27,8 +28,20 @@ public class StartCommand implements Callable<Integer> {
     @Mixin
     CommonOptions common;
 
+    @Option(names = "--mode", defaultValue = "auto", description = "auto (default): tools follow allowed profile policies; read/write: explicit restricted tool modes.")
+    String mode;
+
+    @Option(names = "--profiles", description = "Restrict this MCP process to these profile labels (comma separated); omitted means all profiles.")
+    String profiles;
+
     @Override
     public Integer call() {
+        try {
+            GatewayRuntime.mode(mode.toLowerCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException invalid) {
+            System.err.println(invalid.getMessage());
+            return 2;
+        }
         GatewayContext ctx;
         try {
             ctx = GatewayContext.open(common);
@@ -42,8 +55,28 @@ public class StartCommand implements Callable<Integer> {
             return 2;
         }
 
+        java.util.Set<String> allowed = new java.util.LinkedHashSet<>();
+        if (profiles != null) {
+            try {
+                for (String label : profiles.split(",", -1)) {
+                    String normalized = io.quarkiverse.mcp.servers.jdbc.profile.LabelRules.normalize(label.strip());
+                    if (ctx.registry.byLabel(normalized).isEmpty()) {
+                        throw new IllegalArgumentException("Unknown profile in --profiles: " + normalized);
+                    }
+                    allowed.add(normalized);
+                }
+            } catch (IllegalArgumentException invalid) {
+                System.err.println(invalid.getMessage());
+                return 2;
+            }
+        }
+        GatewayRuntime.profiles(allowed);
+
         // A bad policy disables only its own profile (every call is refused); it does not stop the server.
         for (DbProfile p : ctx.profiles.list()) {
+            if (!GatewayRuntime.allowsProfile(p.label())) {
+                continue;
+            }
             PolicyRepository.Snapshot snap = ctx.policies.current(p);
             if (!snap.active()) {
                 System.err.println("Profile " + p.label() + ": " + snap.state() + " - " + snap.reason());

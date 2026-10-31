@@ -16,6 +16,7 @@ public class GatewayServices {
 
     private volatile QueryService queries;
     private volatile ChangeService changes;
+    private volatile io.quarkiverse.mcp.servers.jdbc.change.TemplateService templates;
 
     private synchronized void init() {
         if (queries != null) {
@@ -27,6 +28,7 @@ public class GatewayServices {
         var ctx = GatewayRuntime.get();
         ToolGateway gateway = new ToolGateway(ctx, new AuditService(ctx.paths.logsDir()));
         changes = new ChangeService(gateway, ctx.approvals);
+        templates = new io.quarkiverse.mcp.servers.jdbc.change.TemplateService(gateway);
         queries = new QueryService(gateway);
     }
 
@@ -42,5 +44,12 @@ public class GatewayServices {
             init();
         }
         return changes;
+    }
+
+    public io.quarkiverse.mcp.servers.jdbc.change.TemplateService templates() {
+        if (templates == null) {
+            init();
+        }
+        return templates;
     }
 }

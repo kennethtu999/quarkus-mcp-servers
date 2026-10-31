@@ -26,7 +26,7 @@ public final class PasswordPrompt {
         if (console == null) {
             throw new IOException("No interactive terminal is available. Run this in a terminal, or pass --password-stdin.");
         }
-        char[] pw = console.readPassword("%s: ", label);
+        char[] pw = label.isEmpty() ? console.readPassword("") : console.readPassword("%s: ", label);
         if (pw == null || pw.length == 0) {
             throw new IOException("A password is required");
         }

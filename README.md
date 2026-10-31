@@ -1,152 +1,86 @@
-# Model Context Protocol Servers in Quarkus/Java
+# DBMCP
 
-This project contains [Model Context Protocol](https://modelcontextprotocol.io/) servers,
-implemented in Java using the [Quarkus MCP server framework](https://github.com/quarkiverse/quarkus-mcp-server).
+讓 Codex、Claude Code、Pi、OpenCode 透過 MCP 查詢 Db2 LUW、PostgreSQL、Oracle 測試資料庫。預設唯讀，每次查詢最多回傳 500 筆；可另外設定允許更新的資料表與固定 SQL 範本。
 
-These lets you extend the capabilities of your MCP enabled LLM (Large Language Model) AI applications.
+## 打包
 
-These also work in MCP enabled LLM applications, like Claude Desktop. You can find other clients on
-[Awesome MCP Clients](https://github.com/punkpeye/awesome-mcp-clients) page.
+需要 JDK 17+、Python 3。在 repository 根目錄執行：
 
-## Running the servers
-
-All of these servers are available to run with [jbang everywhere](https://jbang.dev/everywhere): Java, JavaScript, Python and more. Where it says `jbang` it can be replaced with `npx @jbangdev/jbang` or `uvx jbang` or `pipx jbang` dependent on your preference.
-
-## Servers
-
-### [jdbc](jdbc)
-
-![](jdbc/images/jdbc-trends-demo.png)
-
-The `jdbc` server can be used to store and retrieve data from a database given just a JDBC URL. You can use any JDBC database, like Postgres, MySQL, Oracle, Sqlite, etc.
-
-```shell
-jbang jdbc@quarkiverse/quarkus-mcp-servers
+```sh
+./mvnw -pl jdbc -am verify -Pbundle-db2
+python3 -m unittest discover -s jdbc/scripts -p 'test_*.py'
+python3 jdbc/scripts/smoke_stdio.py java -jar jdbc/target/mcp-server-jdbc-999-SNAPSHOT.jar
+python3 jdbc/scripts/package.py --bundled-db2
 ```
 
-See more in the [jdbc readme](jdbc/README.md).
+產出：
 
-### [jvminsight](jvminsight)
-
-![](jvminsight/images/jvminsight-demo.png)
-
-The `jvminsight` server is a server that can be used to inspect a running JVM process.
-
-```shell
-jbang jvminsight@quarkiverse/quarkus-mcp-servers
+```text
+jdbc/target/dbmcp-local-db2.zip
+jdbc/target/dbmcp-local-db2.zip.sha256
 ```
 
-See more in the [jvminsight readme](jvminsight/README.md).
+ZIP 解壓目錄為 `dbmcp/`，包含 fat JAR、onboarding、範例與使用說明。此版本已包含 Db2 JCC 12.1.5.0、PostgreSQL、Oracle JDBC driver。
 
-### [filesystem](filesystem)
+## 初次使用
 
-The `filesystem` server is a file system server that can be used to serve files from a file system.
+使用者需要 Java 17+、Python 3。將 ZIP 解壓到 HOME：
 
-```shell
-jbang filesystem@quarkiverse/quarkus-mcp-servers [path1] [path2] ...
+```sh
+unzip dbmcp-local-db2.zip -d "$HOME"
+cd "$HOME/dbmcp"
+sh onboarding.sh
 ```
 
-See more in the [filesystem readme](filesystem/README.md).
+依提示貼上 DB 設定，最後輸入 `END`；程式會驗證 MCP 與實際 DB 連線，再讓你選擇註冊 Codex／Claude／Pi／OpenCode。註冊名稱固定為 `dbmcp`，會清除預設 client 設定中的舊名稱。
 
-### [jfx](jfx)
+唯讀範例（依序為名稱、類型、JDBC URL、帳號、Schema、密碼）：
 
-[![](jfx/images/jfx-demo.png)](https://www.youtube.com/watch?v=Wnh_-0dAaDI)
-
-The `jfx` server exposes a canvas that can be used to make drawings using JavaFX.
-
-```shell
-jbang jfx@quarkiverse/quarkus-mcp-servers
+```text
+MY-DEV##DB2_LUW##jdbc:db2://db.example:60000/TESTDB##dbuser##APP##你的密碼
+TLS=OFF
+ACCESS=READ_ONLY
+MAX_ROWS=500
+OVERRIDE=NO
+END
 ```
 
-See more in the [jfx readme](jfx/README.md).
+整段貼入 onboarding，勿貼到 shell。`TLS=OFF` 用於沒有 TLS 的測試 DB；預設 `TLS=ON`，需使用啟用 TLS 的 JDBC URL。覆蓋既有連線改為 `OVERRIDE=YES`。
+更新權限範例見 [setup-combined.example.txt](jdbc/setup-combined.example.txt)：表白名單需預覽與人工確認；固定 UPDATE SQL 範本設定後預先授權，AI 只填範本名稱與參數。
 
+## 各專案指定 DB
 
-### [kubernetes](kubernetes)
+Codex 在專案 `.codex/config.toml` 加入以下設定，保留原有設定：
 
-The `kubernetes` server can be used to interact with a Kubernetes cluster.
+```toml
+[mcp_servers.dbmcp]
+command = "/bin/sh"
+args = ["-c", 'exec "${JAVA_HOME:+$JAVA_HOME/bin/}java" -jar "$HOME/dbmcp/lib/ai-db-mcp.jar" start --profiles MY-DEV']
+startup_timeout_sec = 60
 
-```shell
-jbang kubernetes@quarkiverse/quarkus-mcp-servers
+[mcp_servers.dbmcp.tools.db_list_profiles]
+approval_mode = "approve"
+
+[mcp_servers.dbmcp.tools.db_list_tables]
+approval_mode = "approve"
+
+[mcp_servers.dbmcp.tools.db_describe_table]
+approval_mode = "approve"
+
+[mcp_servers.dbmcp.tools.db_query]
+approval_mode = "approve"
 ```
 
-### [containers](containers)
+`approve` 表示預先允許該工具。`--profiles MY-DEV,MY-SIT` 可指定多組，不分大小寫；省略時允許所有已設定的 Profile。手動設定也應移除舊的 `ai-db-mcp`、`ai-db-read`、`ai-db-write` entry。
+Claude 與其他 client 設定見 [完整使用說明](jdbc/README.md#接入-mcp給其他工具ai-的設定說明)。接入後重開 client，再要求：「使用 dbmcp 列出可用 DB 並查詢資料」。
 
-The 'containers' server lets you work with Docker/Podman/OCI compatible container engines.
+## 執行與紀錄
 
-```shell
-jbang containers@quarkiverse/quarkus-mcp-servers
-```
+- client 自動啟動 JAR，不需另外開服務；多個 client 各有獨立程序與連線池。
+- 第一次操作才連 DB，每個程序、每個 Profile 最多 4 條連線；查完歸還池中，程序結束後釋放。
+- 純執行只需 fat JAR 與 Java 17+；Python 3 用於 onboarding。
+- macOS 設定在 `~/Library/Application Support/ai-db-mcp/`，不在解壓目錄。每人自行初始化，主密鑰預設存於 OS key store。
+- 操作紀錄在上述目錄的 `logs/audit.jsonl`，最多保留 7 天；每次寫入時補清過期紀錄。
+- 啟動失敗訊息輸出到 stderr。macOS 若無法取得 master key，需檢查啟動環境的 Keychain 存取權。
 
-![](containers/images/containers-demo.png)
-
-### [wolfram](wolfram)
-
-The `wolfram` server can be used to perform web search optimized for use by a large language model through the Wolfram Alpha LLM API.
-
-```shell
-jbang wolfram@quarkiverse/quarkus-mcp-servers
-```
-
-## Other Quarkus MCP based servers
-
-### [WildFly](https://github.com/wildfly-extras/wildfly-mcp)
-
-A WildFly MCP server that allows you to interact with WildFly running servers.
-
-You can check this [WildFly vlog](https://youtu.be/wg1hAdOoe2w) that demonstrates its capabilities.
-
-Read more in the [WildFly MCP Server readme](https://github.com/wildfly-extras/wildfly-mcp/blob/main/wildfly-mcp-server/README.md).
-
-## Ideas for other servers
-
-If you have ideas for other servers, feel free to contribute them to this project.
-
-If missing ideas, then look at the reference servers at https://github.com/modelcontextprotocol/servers and see if you can implement them in this project.
-
-Other ideas:
-
-- zulip
-- jfr/java hooked to jmx/jfr
-- quarkus dev mode
-- ... 
-
-## Contributing
-
-If you have ideas for other servers, feel free to contribute them to this project.
-
-To get started, clone the repository and build it:
-
-```bash
-git clone https://github.com/quarkiverse/quarkus-mcp-servers
-cd quarkus-mcp-servers
-mvn clean install
-```
-
-Then run the following command to generate a new server for i.e. jfr:
-
-```shell
-mkdir jfr
-cd jfr
-jbang init -t mcp jfr
-```
-
-This will create the `jfr` directory with a Hello World MCP server.
-
-You can then build it:
-
-```shell
-mvn clean install
-```
-
-To wire it into the full project you need to add `<module>jfr</module>` to the root `pom.xml` file.
-
-Make sure you have added some useful content to the `README.md` file + updated the demo image.
-
-Then open a PR :)
-
-
-
-
-
-
-
+升級時關閉 client，替換安裝目錄，再執行 onboarding 驗證；保留原本設定目錄。詳細權限與操作見 [jdbc/README.md](jdbc/README.md)。

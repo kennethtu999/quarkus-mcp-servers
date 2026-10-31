@@ -1,0 +1,12 @@
+# 權限範例：純查詢。此檔只是說明，不會自動套用。
+# init 已自動產生並啟用每個 Profile 的 READ_ONLY 權限，不需另外修改。
+# 實際檔案：<設定目錄>/permissions/permissions_<LABEL>.yaml
+# 若手動修改實際檔案，須執行 policy validate <LABEL>、policy reload <LABEL>。
+version: 1
+profile: YOUR-DB-LABEL
+# 使用 profile show <LABEL> 查看真正的 profileId，請勿直接複製此值。
+profileId: 00000000-0000-0000-0000-000000000000
+access: READ_ONLY  # 允許 SELECT、列資料表、查看欄位；禁止新增／修改／刪除
+read:
+  maxRows: 500     # 每次查詢最多 500 筆，可降低
+  timeoutSeconds: 30

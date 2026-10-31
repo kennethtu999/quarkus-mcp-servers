@@ -24,16 +24,44 @@ public class ProfileCommand implements Runnable {
     }
 
     static void promptAndAdd(GatewayContext ctx, BufferedReader in, boolean passwordStdin, boolean skipTest) throws Exception {
+        promptAndAdd(ctx, in, passwordStdin, skipTest, false);
+    }
+
+    static void promptAndAdd(GatewayContext ctx, BufferedReader in, boolean passwordStdin, boolean skipTest, boolean paste)
+            throws Exception {
+        if (paste) {
+            System.err.println("格式：Label##DB類型##JDBC URL##帳號##Schema##密碼");
+            System.err.println("範例：MY-DEV##DB2_LUW##jdbc:db2://db.example:60000/TESTDB##dbuser##APP##你的密碼");
+            System.err.println("整行貼上不回顯。省略最後的 ##密碼，可另行隱藏輸入；Schema 可留空。前五欄不可含 ##。");
+            char[] line = PasswordPrompt.password("貼上整行", passwordStdin, in);
+            try (PastedProfile pasted = PastedProfile.parse(line)) {
+                java.util.Arrays.fill(line, '\0');
+                DbType type = DbType.parse(pasted.fields[1]);
+                char[] pw = pasted.password != null ? pasted.password : PasswordPrompt.password("Password", passwordStdin, in);
+                save(ctx, pasted.fields[0], type, pasted.fields[2], pasted.fields[3],
+                        pasted.fields[4], pw, skipTest);
+            } finally {
+                java.util.Arrays.fill(line, '\0');
+            }
+            return;
+        }
         String label = PasswordPrompt.line("DB label (e.g. DB2-DEV)", null, passwordStdin, in);
         DbType type = DbType.parse(PasswordPrompt.line("DB type (DB2_LUW, POSTGRESQL, ORACLE)", null, passwordStdin, in));
         String url = PasswordPrompt.line("JDBC URL", null, passwordStdin, in);
         String user = PasswordPrompt.line("Username", null, passwordStdin, in);
         String schema = PasswordPrompt.line("Default schema (optional)", "", passwordStdin, in);
         char[] pw = PasswordPrompt.password("Password", passwordStdin, in);
+        save(ctx, label, type, url, user, schema, pw, skipTest);
+    }
+
+    private static void save(GatewayContext ctx, String label, DbType type, String url, String user, String schema,
+            char[] pw, boolean skipTest) throws Exception {
         try {
             DbProfile p = ctx.profiles.add(label, type, url, user, pw, schema.isEmpty() ? null : schema, skipTest);
-            System.err.println("Added " + p.label() + " (READ_ONLY). Edit permissions/permissions_" + p.label()
-                    + ".yaml, then run: ai-db-mcp policy validate " + p.label() + " && ai-db-mcp policy reload " + p.label());
+            System.err.println("已新增 " + p.label() + "，預設純查詢權限 READ_ONLY 已啟用（最多 500 筆，禁止寫入）。");
+            System.err.println("實際權限檔：" + ctx.paths.permissionsDir().resolve("permissions_" + p.label() + ".yaml"));
+            System.err.println("直接查詢不需修改權限。只有手動改過此檔，才需執行 policy validate " + p.label()
+                    + " 及 policy reload " + p.label());
         } finally {
             java.util.Arrays.fill(pw, '\0');
         }
@@ -66,13 +94,27 @@ public class ProfileCommand implements Runnable {
         @Option(names = "--password-stdin", description = "Read all answers, including the password, from standard input (one per line).")
         boolean passwordStdin;
 
+        @Option(names = "--paste", description = "Paste Label##DB_TYPE##JDBC_URL##USERNAME##SCHEMA[##PASSWORD] as one hidden input line.")
+        boolean paste;
+
+        @Option(names = "--setup", description = "Paste one connection line followed by TLS/ACCESS/MAX_ROWS/OVERRIDE/UPDATE settings and END.")
+        boolean setup;
+
         @Option(names = "--skip-connection-test")
         boolean skipTest;
 
         @Override
         int run(GatewayContext ctx) throws Exception {
+            if (setup) {
+                if (paste) {
+                    throw new IllegalArgumentException("--setup 與 --paste 請擇一使用");
+                }
+                ProfileSetup.prompt(ctx, new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)),
+                        passwordStdin, skipTest);
+                return 0;
+            }
             promptAndAdd(ctx, new BufferedReader(new InputStreamReader(System.in, StandardCharsets.UTF_8)), passwordStdin,
-                    skipTest);
+                    skipTest, paste);
             return 0;
         }
     }

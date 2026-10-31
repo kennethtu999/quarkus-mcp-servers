@@ -1,7 +1,167 @@
 # AI Database MCP Gateway
 
+## 中文快速使用
+
+這是本機 stdio MCP，支援 Db2 LUW、PostgreSQL、Oracle 的測試資料庫。安裝包已包含 JDBC driver（Db2 bundled 版）。
+準備 Java 17+、Python 3，將完整 ZIP 解壓到固定目錄後執行：
+
+```sh
+cd /你的安裝位置/dbmcp
+sh onboarding.sh
+```
+
+onboarding 先顯示既有 DB 狀態，再顯示兩組 sample（READ、UPDATE＋TABLE＋SQL）供整段貼上，最後驗證 MCP 與實際 DB。
+驗證後可選註冊到預設 Codex、Claude、Pi、OpenCode（可複選，`0` 略過）。只使用預設使用者設定，不處理 `~/bin/*.sh` 或自訂設定位置；OpenCode 合併前會備份並保留其他設定。
+
+純查詢 sample（第一行的順序：Label、DB 類型、JDBC URL、帳號、Schema、密碼）：
+
+```text
+MY-DEV##DB2_LUW##jdbc:db2://db.example:60000/TESTDB##dbuser##APP##你的密碼
+TLS=OFF
+ACCESS=READ_ONLY
+MAX_ROWS=100
+OVERRIDE=NO
+END
+```
+
+整段貼入程式提示，不要貼到 shell 指令列；內容不回顯。密碼可含 `##`；前五欄不可含 `##`。
+省略第一行最後的 `##密碼` 可再隱藏輸入密碼。`END` 結束這一組 DB 的設定。
+
+- `TLS=ON` 是預設，JDBC URL 必須啟用 TLS；無 TLS 的測試 DB 才填 `OFF`。
+- `ACCESS=READ_ONLY` 是預設；有更新規則時填 `UPDATE`。
+- `MAX_ROWS` 可設 1–500，預設 500；程式強制限制回傳筆數，AI 不能提高上限。
+- `OVERRIDE=YES` 整組取代同名 DB 的連線與權限，保留 profileId 與啟用狀態；預設 `NO`，重名即拒絕。驗證失敗不取代舊設定。
+
+多表與固定 SQL 可在同一段設定，後面的設定行例如：
+
+```text
+TLS=OFF
+ACCESS=UPDATE
+MAX_ROWS=500
+OVERRIDE=YES
+UPDATE=APP.CUSTOMERS,APP.PAYMENTS
+SQL=order_status##UPDATE APP.ORDERS SET STATUS=? WHERE ORDER_ID=?
+SQL=order_note##UPDATE APP.ORDERS SET NOTE=? WHERE ORDER_ID=? AND VERSION=?
+END
+```
+
+`UPDATE=` 可有多行，允許指定資料表的結構化 UPDATE，需 preview → 人工 approve → execute。
+`SQL=` 可有多行，固定範本在設定成功後即預先授權，**執行免逐次審核**。AI 只能提供範本名稱與參數，不能傳入或更改 SQL。
+第一版 SQL 僅支援單表 UPDATE、`SET COL=?`、至少一個 `WHERE KEY=?`，多條件用 AND；不接受函式、JOIN、OR、子查詢、註解、分號或其他 SQL 語法。
+若只要固定 SQL 的權限，就不要再對同一張表宣告整表 `UPDATE=`。
+異動預設最多 100 筆，超過會拒絕／回滾。查詢上限 500 是回傳上限，DB 可能多讀一筆判斷截斷，不是資料庫掃描量上限。
+
+完整可修改 sample：`setup.example.txt`、`setup-update.example.txt`、`setup-sql.example.txt`、`setup-combined.example.txt`。
+權限 YAML 範例：`sample.yaml`。不需要手動複製 sample；onboarding 會產生並啟用真正的權限檔。
+
+## 接入 MCP：給其他工具／AI 的設定說明
+
+使用 **stdio**，由 client 啟動 Java 程序，不需先開 HTTP server。請將範例中的 `/ABS_PATH/ai-db-mcp` 換成這個解壓目錄的實際絕對路徑；
+Java 也建議使用完整路徑。不要在 client 設定加入 DB 帳號、密碼或 JDBC URL。保留 client 原有設定，只合併下列 entry。
+
+| 入口名稱 | 啟動參數 | 可用工具 |
+|---|---|---|
+| `dbmcp`（目前純讀） | `start` | `db_list_profiles`、`db_list_tables`、`db_describe_table`、`db_query` |
+| 同一個 `dbmcp`（有允許更新的 DB） | 同一個 `start` | 上述查詢工具，加上 `db_list_change_rules`、`db_execute_template`、`db_preview_change`、`db_execute_change` |
+
+一律只註冊 **`dbmcp`**。`start` 預設 `auto`，依允許的 Profile 權限提供 4 或 8 個工具；停用、無效或範圍外的 Profile 不會啟用異動工具。各次操作仍逐一驗證目標 DB 的政策。
+修改 DB 權限後重開／重新連線 MCP 讓 client 更新工具清單，不需要改註冊名稱或重新註冊。
+onboarding 註冊會更新 `dbmcp` 並移除該 client 預設設定中的舊別名 `ai-db-mcp`、`ai-db-read`、`ai-db-write`，保留其他 MCP 和既有 `--profiles` 限制；JSON 設定修改前會備份。新設定啟動驗證失敗時不會清除舊別名。
+手動專案設定若仍用舊別名，也請改成相同的 `dbmcp` 名稱。進階用途仍可指定 `--mode read` 或 `--mode write`，但一般註冊不固定模式。
+
+Claude Desktop／其他使用 `mcpServers` JSON 的 client：
+
+```json
+{
+  "mcpServers": {
+    "dbmcp": {
+      "command": "/ABS_PATH/jdk/bin/java",
+      "args": ["-jar", "/ABS_PATH/dbmcp/lib/ai-db-mcp.jar", "start"]
+    }
+  }
+}
+```
+
+Codex 使用的 `config.toml`：
+
+```toml
+[mcp_servers.dbmcp]
+command = "/ABS_PATH/jdk/bin/java"
+args = ["-jar", "/ABS_PATH/dbmcp/lib/ai-db-mcp.jar", "start"]
+startup_timeout_sec = 30
+```
+
+OpenCode 在 `mcp` 下只建立 `dbmcp`，entry 為 `{"type":"local","command":["/ABS_PATH/jdk/bin/java","-jar","/ABS_PATH/dbmcp/lib/ai-db-mcp.jar","start"],"enabled":true}`。
+新版 Pi（已核對 1.4.0）支援原生 `pi mcp add`，使用 `~/.pi/agent/mcp.json`；舊版不支援時會提示升級。使用者自訂啟動腳本／設定檔位置由 client 自己處理，onboarding 不介入。
+Windows 可使用 `C:/.../java.exe` 與 `C:/.../ai-db-mcp.jar` 路徑。
+
+AI 先呼叫 `db_list_profiles` 查看實際權限；需要異動時，再呼叫 `db_list_change_rules(profileId)`。
+規則清單會提供允許的表／SQL、參數順序、JDBC 型別、size、scale、nullable。Metadata 即時讀取，執行時再驗證，商業值限制不會從欄位型別自動推論。
+
+固定 SQL 的呼叫範例：`db_execute_template`，參數為：
+
+```json
+{"profileId":"MY-DEV","templateId":"order_status","params":["CANCELLED","ORD001"]}
+```
+
+client 接入後重開工作階段，確認工具清單符合上表，再列 Profile／查資料；onboarding 的驗證只證明 Gateway／DB 有效，不能代替 client 本身的接入驗證。
+
+## 不同專案使用不同 DB
+
+DB 帳密仍共用加密儲存；每個專案的 MCP 加上 `--profiles`，只列出並允許指定 DB，直接指定其他 DB 的名稱或 ID 也會拒絕。
+多組可用逗號分隔，如 `--profiles MY-DEV,MY-SIT`。省略時允許所有 Profile。
+
+Codex：在專案的 `.codex/config.toml` 放入（需信任該專案）：
+
+```toml
+[mcp_servers.dbmcp]
+command = "/ABS_PATH/jdk/bin/java"
+args = ["-jar", "/ABS_PATH/dbmcp/lib/ai-db-mcp.jar", "start", "--profiles", "PROJECT-A-DEV"]
+```
+
+Claude Code：在專案的 `.mcp.json` 放入：
+
+```json
+{
+  "mcpServers": {
+    "dbmcp": {
+      "command": "/ABS_PATH/jdk/bin/java",
+      "args": ["-jar", "/ABS_PATH/dbmcp/lib/ai-db-mcp.jar", "start", "--profiles", "PROJECT-A-DEV"]
+    }
+  }
+}
+```
+
+B 專案改成 `PROJECT-B-DEV`。專案與全域都使用相同的 `dbmcp` 名稱，讓專案設定覆蓋全域 entry；清掉專案中舊的 `ai-db-read`／`ai-db-write` 別名，避免另一入口不受此範圍限制。
+如使用非預設 Gateway 設定目錄或 key file，專案 entry 須沿用對應的 `--config-dir`／`--key-provider`。
+Pi 可在專案 `.pi/mcp.json` 使用相同 `mcpServers` 格式；OpenCode 用專案 `opencode.json` 的 `mcp` 格式，加上同樣的 `--profiles` 啟動參數。
+
+## 設定放在哪裡
+
+- macOS：`~/Library/Application Support/ai-db-mcp/`
+- Linux：`${XDG_CONFIG_HOME:-~/.config}/ai-db-mcp/`
+- Windows：`%LOCALAPPDATA%/ai-db-mcp/`
+
+`profiles.enc` 是加密連線，`permissions/permissions_<LABEL>.yaml` 是權限，`logs/audit.jsonl` 是紀錄；主密鑰預設放 OS key store。
+
+Audit 紀錄最多保留 7 天，每次寫入時自動刪除過期紀錄（包含目前檔案及輪替檔）；停止使用期間不執行清理，下次操作時補清。單檔達 10 MiB 會輪替，另外最多保留 10 個輪替檔，因此大量使用時可能少於 7 天。
+可用 `AI_DB_MCP_CONFIG_DIR` 改位置；無 key store 時明確指定 `AI_DB_MCP_KEY_PROVIDER=keyfile:/外部安全位置/master.key`。
+所有管理命令與 MCP 程序必須使用同一設定目錄、key provider 及可存取密鑰的 OS 使用者；自訂目錄可在每個 MCP 的 `args` 加入 `--config-dir`、`--key-provider`。
+設定不在 ZIP 解壓目錄，換程式版本不會清掉連線。每人自己初始化，不共用 master key。
+DB MCP 本身沒有管理設定的工具；若 AI 另有同帳號的 shell／檔案權限，仍可能改設定，不能視為 OS 權限隔離。
+
+---
+
 A Model Context Protocol (MCP) server that lets an AI assistant query, and in a controlled way modify, **test data** in
 IBM Db2 LUW, PostgreSQL and Oracle databases - while the assistant never sees a database password.
+
+**安裝、Codex / Claude 接入與團隊交付： [繁體中文操作步驟](docs/QUICKSTART.zh-TW.md)。**
+
+macOS/Linux：解壓後執行 `sh onboarding.sh`，依提示設定與驗證 DB；client 接入方式見上方。
+
+Create a portable distribution after building: `python3 jdbc/scripts/package.py` (from the repository root).
+Extract `jdbc/target/dbmcp-local.zip`, then run `bin/ai-db-mcp` (`bin/ai-db-mcp.cmd` on Windows).
+The `ai-db-mcp` commands below refer to this launcher; add its `bin` directory to PATH or use its absolute path.
 
 > **Scope:** DEV / SIT / UAT databases on a single trusted workstation, over stdio. Not for production data and not a
 > multi-user service. See [docs/SECURITY.md](docs/SECURITY.md) for exactly what it does and does not protect against, and
@@ -13,7 +173,11 @@ on the command line were removed on purpose.
 
 ## What the assistant can do
 
-The assistant is given exactly six tools. `ToolSurfaceTest` fails the build if any other tool or prompt is compiled in.
+Register one stable server name, **dbmcp**, with `start` (default mode: `auto`). It exposes four query tools when all
+allowed profiles are read-only, or eight tools when an enabled, active, in-scope profile permits writes. Each operation
+still enforces its own profile policy. Reconnect after policy changes to refresh the client's tool catalog; no rename
+or re-registration is needed. Explicit `--mode read` and `--mode write` remain supported for advanced restrictions.
+`ToolSurfaceTest` checks the eight approved tools; runtime filtering and write entry-point checks enforce availability.
 
 | Tool | Purpose |
 |---|---|
@@ -23,8 +187,18 @@ The assistant is given exactly six tools. `ToolSurfaceTest` fails the build if a
 | `db_query` | **One** read-only `SELECT`. **At most 500 rows per call - this cannot be raised.** |
 | `db_preview_change` | Structured single-table `INSERT` / `UPDATE` / `DELETE`. Changes nothing; returns what would change. |
 | `db_execute_change` | Runs a previewed change, only with a one-time token that **you** obtained. |
+| `db_list_change_rules` | Write endpoint: lists table rules, SQL template IDs and live parameter metadata. |
+| `db_execute_template` | Write endpoint: runs a pre-approved fixed UPDATE template by ID and bound parameters, without per-run approval. |
 
 There is no tool that accepts SQL for writing, no DDL, no stored procedures, and no tool to change profiles or policies.
+SQL templates are declared only by the administrator during onboarding (`SQL=id##UPDATE ...`). They allow a restricted
+single-table UPDATE with parameterized assignments and mandatory equality conditions joined by AND. They do not grant
+generic table write access. Parameters are validated against current JDBC metadata and bound to prepared statements;
+template executions roll back on errors or affected-row overflow (default 100), and are never automatically retried.
+
+Use `sh onboarding.sh` to paste a complete connection/policy block. It displays existing DB status, supports explicit
+`OVERRIDE=YES` and enforces `MAX_ROWS=1..500`. Default client registration is optional; project-specific examples are above.
+See `setup.example.txt`, `setup-update.example.txt`, `setup-sql.example.txt` and `setup-combined.example.txt` in the ZIP.
 
 ## Install and build
 
@@ -35,6 +209,18 @@ java -jar jdbc/target/mcp-server-jdbc-999-SNAPSHOT.jar --help
 
 Requires Java 17 or newer. The PostgreSQL and Oracle JDBC drivers are bundled. **IBM Db2 JCC is not** (its licence restricts
 redistribution): download it yourself and see [Db2](#db2) below.
+
+For an internal distribution permitted to include IBM JCC, build a fat JAR with both Db2 JCC and the existing
+PostgreSQL / Oracle drivers:
+
+```shell
+./mvnw -pl jdbc -am verify -Pbundle-db2
+python3 jdbc/scripts/package.py --bundled-db2
+```
+
+The Db2 profile declares `com.ibm.db2:jcc:12.1.5.0` through Maven; no Gradle cache path or manual driver pin is needed
+at runtime. Oracle continues to use the BOM-managed `ojdbc11` dependency for Java 17 compatibility.
+Confirm IBM driver redistribution rights before sharing this bundled build.
 
 ## First-time setup
 
@@ -150,12 +336,17 @@ cannot grant anything the database does not.
 A token works once, expires after 2 minutes, is bound to that exact change, policy version and data, and five wrong guesses
 revoke the preview. The assistant cannot create or forge one: it has no key and no access to the approval files.
 
+This token flow applies to **table rules and structured changes**. Explicit SQL templates with `autoExecute: true`
+are approved once when configured; `db_execute_template` needs no approval token. `db_list_change_rules` reports the
+distinction and parameter order, JDBC type, size, scale and nullability. Metadata is read live during discovery and
+checked again during execution; it is not a stale startup cache. Business value allowlists are not inferred from JDBC.
+
 ## Use it from an MCP client
 
 ```json
 {
   "mcpServers": {
-    "ai-db-mcp": {
+    "dbmcp": {
       "command": "java",
       "args": ["-jar", "/path/to/mcp-server-jdbc-999-SNAPSHOT.jar", "start"]
     }

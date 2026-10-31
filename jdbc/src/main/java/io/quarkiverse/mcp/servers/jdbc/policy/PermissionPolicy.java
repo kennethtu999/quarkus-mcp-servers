@@ -3,6 +3,8 @@ package io.quarkiverse.mcp.servers.jdbc.policy;
 import java.util.List;
 import java.util.Set;
 
+import io.quarkiverse.mcp.servers.jdbc.change.SqlUpdateTemplate;
+
 /**
  * A validated, immutable per-profile policy. Instances are only produced by {@link PolicyValidator}, so holding one
  * means every rule in section 8.4 of the plan has already been checked.
@@ -40,7 +42,12 @@ public record PermissionPolicy(
             Set<Operation> operations,
             List<WhitelistEntry> whitelist,
             int maxAffectedRows,
-            boolean requireConfirmation) {
+            boolean requireConfirmation,
+            List<SqlUpdateTemplate> templates) {
+        public Write(List<String> allowedSchemas, Set<Operation> operations, List<WhitelistEntry> whitelist,
+                int maxAffectedRows, boolean requireConfirmation) {
+            this(allowedSchemas, operations, whitelist, maxAffectedRows, requireConfirmation, List.of());
+        }
     }
 
     public PermissionPolicy {

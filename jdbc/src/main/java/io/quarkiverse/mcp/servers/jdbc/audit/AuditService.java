@@ -11,6 +11,8 @@ import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.HexFormat;
 import java.util.List;
@@ -83,6 +85,7 @@ public final class AuditService {
             try (FileChannel lockCh = FileChannel.open(dir.resolve(".audit.lock"), StandardOpenOption.CREATE,
                     StandardOpenOption.WRITE); FileLock ignored = lockCh.lock()) {
                 rotateIfNeeded();
+                removeExpiredRecords();
                 String prev = hashOfLastLine(); // always from the file: another process may have written since we last did
 
                 ObjectNode node = JSON.createObjectNode();
@@ -126,6 +129,44 @@ public final class AuditService {
     }
 
     private static final Pattern ROTATED = Pattern.compile("audit-(\\d{12})-\\d+\\.jsonl");
+
+    /** Run under the shared file lock; retain original lines so the remaining hash chain stays intact. */
+    private void removeExpiredRecords() throws IOException {
+        Instant cutoff = clock.instant().minus(Duration.ofDays(7));
+        java.util.ArrayList<Path> sources = new java.util.ArrayList<>(rotatedFiles());
+        if (Files.exists(file)) {
+            sources.add(file);
+        }
+        for (Path source : sources) {
+            try (var reader = Files.newBufferedReader(source, StandardCharsets.UTF_8)) {
+                String first = reader.readLine();
+                if (first == null || !expired(first, cutoff)) {
+                    continue;
+                }
+            }
+            List<String> lines = Files.readAllLines(source, StandardCharsets.UTF_8);
+            int start = 0;
+            while (start < lines.size() && expired(lines.get(start), cutoff)) {
+                start++;
+            }
+            if (start == lines.size()) {
+                Files.deleteIfExists(source);
+            } else {
+                Path temporary = Files.createTempFile(source.getParent(), ".audit-retention-", ".tmp");
+                try {
+                    FilePerms.restrictFile(temporary);
+                    Files.write(temporary, lines.subList(start, lines.size()), StandardCharsets.UTF_8);
+                    Files.move(temporary, source, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+                } finally {
+                    Files.deleteIfExists(temporary);
+                }
+            }
+        }
+    }
+
+    private static boolean expired(String line, Instant cutoff) throws IOException {
+        return OffsetDateTime.parse(JSON.readTree(line).path("timestamp").asText()).toInstant().isBefore(cutoff);
+    }
 
     private void rotateIfNeeded() throws IOException {
         if (!Files.exists(file) || Files.size(file) < maxBytes) {

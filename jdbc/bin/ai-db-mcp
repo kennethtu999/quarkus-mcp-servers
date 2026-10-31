@@ -1,0 +1,14 @@
+#!/bin/sh
+# Resolve relative to this launcher, independent of the MCP client's working directory.
+set -eu
+APP_DIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -n "${JAVA_HOME:-}" ]; then
+    JAVA="$JAVA_HOME/bin/java"
+else
+    JAVA=java
+fi
+if [ ! -f "$APP_DIR/lib/ai-db-mcp.jar" ]; then
+    echo "Missing lib/ai-db-mcp.jar. Run jdbc/scripts/package.py first, or extract the complete distribution." >&2
+    exit 1
+fi
+exec "$JAVA" -jar "$APP_DIR/lib/ai-db-mcp.jar" "$@"

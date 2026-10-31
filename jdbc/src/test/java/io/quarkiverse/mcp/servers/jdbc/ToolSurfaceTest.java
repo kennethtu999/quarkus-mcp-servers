@@ -29,7 +29,9 @@ class ToolSurfaceTest {
             "db_describe_table",
             "db_query",
             "db_preview_change",
-            "db_execute_change");
+            "db_execute_change",
+            "db_list_change_rules",
+            "db_execute_template");
 
     @Test
     void onlyApprovedToolsAreRegistered() throws Exception {
@@ -42,7 +44,7 @@ class ToolSurfaceTest {
     }
 
     @Test
-    void allSixApprovedToolsArePresentAndNothingElse() throws Exception {
+    void allApprovedToolsArePresentAndNothingElse() throws Exception {
         // guards against the scan silently finding nothing, which would make the tests above vacuous
         assertThat(scanTools()).containsExactlyInAnyOrderElementsOf(APPROVED_TOOLS);
     }

@@ -122,7 +122,7 @@ public final class MetadataService {
     }
 
     public record Column(String name, int sqlType, String typeName, boolean nullable, boolean autoIncrement,
-            boolean generated) {
+            boolean generated, int size, int scale) {
     }
 
     /** Columns of one table keyed by upper-cased name, spelled exactly as the database spells them. */
@@ -142,7 +142,8 @@ public final class MetadataService {
                 out.put(name.toUpperCase(Locale.ROOT), new Column(name, rs.getInt("DATA_TYPE"), rs.getString("TYPE_NAME"),
                         "YES".equalsIgnoreCase(rs.getString("IS_NULLABLE")),
                         "YES".equalsIgnoreCase(rs.getString("IS_AUTOINCREMENT")),
-                        "YES".equalsIgnoreCase(rs.getString("IS_GENERATEDCOLUMN"))));
+                        "YES".equalsIgnoreCase(rs.getString("IS_GENERATEDCOLUMN")), rs.getInt("COLUMN_SIZE"),
+                        rs.getInt("DECIMAL_DIGITS")));
             }
         }
         return out;

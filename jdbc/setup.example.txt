@@ -1,0 +1,6 @@
+MY-DEV##DB2_LUW##jdbc:db2://db.example:60000/TESTDB##dbuser##APP##你的密碼
+TLS=OFF
+ACCESS=READ_ONLY
+MAX_ROWS=100
+OVERRIDE=NO
+END

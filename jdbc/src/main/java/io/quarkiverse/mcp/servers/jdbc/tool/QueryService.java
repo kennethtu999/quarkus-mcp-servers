@@ -50,9 +50,14 @@ public final class QueryService {
         }
         List<Map<String, Object>> out = new ArrayList<>();
         for (var p : ctx.registry.all()) {
+            if (!io.quarkiverse.mcp.servers.jdbc.app.GatewayRuntime.allowsProfile(p.label())) {
+                continue;
+            }
             var snap = ctx.policies.current(p);
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("profileId", p.profileId());
+            m.put("gatewayMode", io.quarkiverse.mcp.servers.jdbc.app.GatewayRuntime.mode());
+            m.put("gatewayReadOnly", !io.quarkiverse.mcp.servers.jdbc.app.ToolMode.writeEnabled());
             m.put("label", p.label());
             m.put("dbType", p.dbType().name());
             m.put("enabled", p.enabled());

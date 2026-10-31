@@ -95,7 +95,7 @@ public final class ToolGateway {
                 throw new Denied("PROFILES_UNAVAILABLE",
                         "Profiles cannot be read right now; ask the administrator to check the gateway");
             }
-            if (profile == null) {
+            if (profile == null || !io.quarkiverse.mcp.servers.jdbc.app.GatewayRuntime.allowsProfile(profile.label())) {
                 throw new Denied("UNKNOWN_PROFILE", "No such profile");
             }
             event.profile(profile.profileId(), profile.label());

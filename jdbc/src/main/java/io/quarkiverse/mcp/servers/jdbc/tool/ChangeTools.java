@@ -29,6 +29,7 @@ public class ChangeTools {
             @ToolArg(description = "Table name") String table,
             @ToolArg(description = "Column to new value (INSERT and UPDATE)", required = false) Map<String, Object> values,
             @ToolArg(description = "Column to required value, all must match (UPDATE and DELETE)", required = false) Map<String, Object> conditions) {
+        io.quarkiverse.mcp.servers.jdbc.app.ToolMode.requireWrite();
         Operation op;
         try {
             op = Operation.valueOf(operation == null ? "" : operation.strip().toUpperCase());
@@ -44,6 +45,7 @@ public class ChangeTools {
             @ToolArg(description = "Profile id or label") String profileId,
             @ToolArg(description = "previewId returned by db_preview_change") String previewId,
             @ToolArg(description = "One-time token given to you by the user") String confirmationToken) {
+        io.quarkiverse.mcp.servers.jdbc.app.ToolMode.requireWrite();
         return services.changes().execute(profileId, previewId, confirmationToken);
     }
 }

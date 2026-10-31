@@ -11,6 +11,9 @@ release.properties
 .classpath
 .settings/
 bin/
+!jdbc/bin/
+!jdbc/bin/ai-db-mcp
+!jdbc/bin/ai-db-mcp.cmd
 
 # IntelliJ
 .idea
@@ -38,6 +41,7 @@ nb-configuration.xml
 
 # Local environment
 .env
+__pycache__/
 
 # Plugin directory
 /.quarkus/cli/plugins/

@@ -171,6 +171,39 @@ class AuditServiceTest {
     // ---- rotation ----
 
     @Test
+    void retentionTrimsActiveFileAtSevenDaysAndKeepsBoundaryAndChain() throws Exception {
+        Instant now = Instant.parse("2026-10-30T10:00:00Z");
+        new AuditService(logs, Clock.fixed(now.minusSeconds(7 * 86400L + 1), ZoneId.of("UTC")), 100000, 10)
+                .record(sample("db_query").detail("expired"));
+        new AuditService(logs, Clock.fixed(now.minusSeconds(7 * 86400L), ZoneId.of("UTC")), 100000, 10)
+                .record(sample("db_query").detail("boundary"));
+        new AuditService(logs, Clock.fixed(now, ZoneId.of("UTC")), 100000, 10)
+                .record(sample("db_query").detail("new"));
+        assertThat(Files.readString(audit.file())).doesNotContain("expired").contains("boundary", "new");
+        assertThat(AuditService.verify(audit.file())).isZero();
+        FilePerms.verifyFile(audit.file());
+    }
+
+    @Test
+    void retentionDeletesExpiredArchivesWithoutTouchingOtherFiles() throws Exception {
+        Instant now = Instant.parse("2026-10-30T10:00:00Z");
+        AuditService old = new AuditService(logs,
+                Clock.fixed(now.minusSeconds(8 * 86400L), ZoneId.of("UTC")), 1, 10);
+        old.record(sample("db_query"));
+        old.record(sample("db_query"));
+        Path unrelated = logs.resolve("other.log");
+        Files.writeString(unrelated, "keep");
+        new AuditService(logs, Clock.fixed(now, ZoneId.of("UTC")), 100000, 10)
+                .record(sample("db_query").detail("fresh"));
+        try (var paths = Files.list(logs)) {
+            assertThat(paths.filter(p -> p.getFileName().toString().startsWith("audit-")).toList()).isEmpty();
+        }
+        assertThat(read(audit.file())).hasSize(1);
+        assertThat(Files.readString(unrelated)).isEqualTo("keep");
+        assertThat(AuditService.verify(audit.file())).isZero();
+    }
+
+    @Test
     void rotationKeepsTheChainContinuousAndLimitsHowManyFilesRemain() throws Exception {
         Clock clock = Clock.fixed(Instant.parse("2026-10-30T10:00:00Z"), ZoneId.of("UTC"));
         AuditService small = new AuditService(logs, clock, 600, 3);

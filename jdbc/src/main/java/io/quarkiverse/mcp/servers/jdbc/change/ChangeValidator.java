@@ -214,7 +214,7 @@ public final class ChangeValidator {
                 case Types.CHAR, Types.VARCHAR, Types.NCHAR, Types.NVARCHAR, Types.LONGVARCHAR, Types.LONGNVARCHAR, Types.CLOB,
                         Types.NCLOB:
                     String str = v.toString();
-                    if (str.length() > MAX_STRING) {
+                    if (str.length() > MAX_STRING || (c.size() > 0 && str.codePointCount(0, str.length()) > c.size())) {
                         throw new Invalid("Value for " + c.name() + " is too long");
                     }
                     if (str.indexOf('\0') >= 0) {

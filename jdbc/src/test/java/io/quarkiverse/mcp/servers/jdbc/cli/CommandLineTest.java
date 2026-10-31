@@ -59,6 +59,96 @@ class CommandLineTest {
         assertThat(r.exit).as(r.err).isZero();
     }
 
+    private Run setup(Path cfg, Path key, String label, String settings, boolean skipConnectionTest) {
+        String input = label + "##POSTGRESQL##jdbc:postgresql://127.0.0.1:1/db?sslmode=verify-full"
+                + "##setup_user##public##SETUP-SECRET\n" + settings + "\nEND\n";
+        String[] args = skipConnectionTest
+                ? new String[] { "init", "--setup", "--password-stdin", "--skip-connection-test" }
+                : new String[] { "init", "--setup", "--password-stdin" };
+        return run(input, concat(args, common(cfg, key)));
+    }
+
+    @Test
+    void setupOverridesOnlyWhenExplicitAndPreservesIdentityAndDisabledStatus() throws Exception {
+        Path cfg = tmp.resolve("setup-cfg"), key = tmp.resolve("setup-key/master.key");
+        Run created = setup(cfg, key, "PG-SETUP", "MAX_ROWS=42", true);
+        assertThat(created.exit).as(created.err).isZero();
+        String original = Files.readString(cfg.resolve("permissions/permissions_PG-SETUP.yaml"));
+        var yaml = new com.fasterxml.jackson.databind.ObjectMapper(new com.fasterxml.jackson.dataformat.yaml.YAMLFactory());
+        String id = yaml.readTree(original).get("profileId").asText();
+        Run denied = setup(cfg, key, "PG-SETUP", "MAX_ROWS=5", true);
+        assertThat(denied.exit).isNotZero();
+        assertThat(Files.readString(cfg.resolve("permissions/permissions_PG-SETUP.yaml"))).isEqualTo(original);
+        run("", concat(new String[] { "profile", "disable", "PG-SETUP" }, common(cfg, key)));
+        Run updated = setup(cfg, key, "PG-SETUP",
+                "OVERRIDE=YES\nACCESS=UPDATE\nUPDATE=public.orders,public.customers\nMAX_ROWS=5\n"
+                        + "SQL=one##UPDATE public.orders SET status=? WHERE id=?\nSQL=two##UPDATE public.customers SET email=? WHERE id=?",
+                true);
+        assertThat(updated.exit).as(updated.err).isZero();
+        var policy = yaml.readTree(Files.readString(cfg.resolve("permissions/permissions_PG-SETUP.yaml")));
+        assertThat(policy.get("profileId").asText()).isEqualTo(id);
+        assertThat(policy.get("read").get("maxRows").asInt()).isEqualTo(5);
+        assertThat(policy.get("write").get("whitelist")).hasSize(2);
+        assertThat(policy.get("write").get("templates")).hasSize(2);
+        assertThat(policy.get("write").get("templates").get(0).get("autoExecute").asBoolean()).isTrue();
+        assertThat(policy.get("write").get("whitelist").get(0).get("operations").toString()).isEqualTo("[\"UPDATE\"]");
+        Run inspected = run("", concat(new String[] { "profile", "show", "PG-SETUP" }, common(cfg, key)));
+        assertThat(inspected.out).contains("false").contains("ACTIVE");
+        assertThat(updated.out + updated.err + Files.readString(cfg.resolve("logs/audit.jsonl")))
+                .doesNotContain("SETUP-SECRET").doesNotContain("setup_user");
+        Run readonly = setup(cfg, key, "PG-SETUP", "OVERRIDE=YES\nACCESS=READ_ONLY", true);
+        assertThat(readonly.exit).as(readonly.err).isZero();
+        assertThat(Files.readString(cfg.resolve("permissions/permissions_PG-SETUP.yaml"))).doesNotContain("whitelist");
+    }
+
+    @Test
+    void failedOverrideConnectionAndBadRowLimitLeaveExistingFilesUntouched() throws Exception {
+        Path cfg = tmp.resolve("failed-cfg"), key = tmp.resolve("failed-key/master.key");
+        assertThat(setup(cfg, key, "PG-SETUP", "MAX_ROWS=40", true).exit).isZero();
+        byte[] profiles = Files.readAllBytes(cfg.resolve("profiles.enc"));
+        String policy = Files.readString(cfg.resolve("permissions/permissions_PG-SETUP.yaml"));
+        assertThat(setup(cfg, key, "PG-SETUP", "OVERRIDE=YES\nMAX_ROWS=3", false).exit).isNotZero();
+        assertThat(setup(cfg, key, "PG-SETUP", "OVERRIDE=YES\nMAX_ROWS=501", true).exit).isNotZero();
+        assertThat(Files.readAllBytes(cfg.resolve("profiles.enc"))).isEqualTo(profiles);
+        assertThat(Files.readString(cfg.resolve("permissions/permissions_PG-SETUP.yaml"))).isEqualTo(policy);
+    }
+
+    @Test
+    void incompleteBlockNeverWritesProfiles() {
+        Path cfg = tmp.resolve("incomplete-cfg"), key = tmp.resolve("incomplete-key/master.key");
+        Run result = run(
+                "DEV##POSTGRESQL##jdbc:postgresql://127.0.0.1:1/db?sslmode=verify-full##user##public##SECRET\nMAX_ROWS=10\n",
+                concat(new String[] { "init", "--setup", "--password-stdin", "--skip-connection-test" }, common(cfg, key)));
+        assertThat(result.exit).isNotZero();
+        assertThat(cfg.resolve("profiles.enc")).doesNotExist();
+        assertThat(result.out + result.err).doesNotContain("##SECRET");
+    }
+
+    @Test
+    void pasteModeCreatesReadOnlyProfilesWithoutPrintingOrAuditingTheLine() throws Exception {
+        Path cfg = tmp.resolve("paste-cfg"), key = tmp.resolve("paste-key/master.key");
+        String line = "PG-PASTE##POSTGRESQL##jdbc:postgresql://pg.example.internal:5432/db?sslmode=verify-full"
+                + "##ai_user##public##PASTE-SECRET##with-hashes $! ";
+        Run created = run(line + "\n", concat(new String[] { "init", "--paste", "--password-stdin",
+                "--skip-connection-test" }, common(cfg, key)));
+        assertThat(created.exit).as(created.err).isZero();
+        assertThat(created.out + created.err).doesNotContain("PASTE-SECRET").doesNotContain("pg.example.internal");
+        Run added = run("PG-SECOND##POSTGRESQL##jdbc:postgresql://pg.example.internal:5432/db?sslmode=verify-full##ai_user##\n"
+                + "SECOND-SECRET\n",
+                concat(new String[] { "profile", "add", "--paste", "--password-stdin",
+                        "--skip-connection-test" }, common(cfg, key)));
+        assertThat(added.exit).as(added.err).isZero();
+        assertThat(added.out + added.err).doesNotContain("SECOND-SECRET");
+        for (String label : new String[] { "PG-PASTE", "PG-SECOND" }) {
+            assertThat(Files.readString(cfg.resolve("permissions/permissions_" + label + ".yaml")))
+                    .contains("access: READ_ONLY");
+            Run status = run("", concat(new String[] { "policy", "show", label }, common(cfg, key)));
+            assertThat(status.out).contains("ACTIVE");
+        }
+        assertThat(Files.readString(cfg.resolve("logs/audit.jsonl"))).doesNotContain("PASTE-SECRET")
+                .doesNotContain("SECOND-SECRET").doesNotContain("pg.example.internal");
+    }
+
     private static String[] concat(String[] a, String[] b) {
         String[] out = java.util.Arrays.copyOf(a, a.length + b.length);
         System.arraycopy(b, 0, out, a.length, b.length);

@@ -22,7 +22,7 @@ public class ListProfilesTool {
         return services.queries();
     }
 
-    @Tool(name = "db_list_profiles", description = "List the configured database profiles with their label, type, connection status and access mode. Never returns connection details or credentials.")
+    @Tool(name = "db_list_profiles", description = "Start here: lists allowed profiles, gatewayReadOnly and each profile's access mode. ai-db-mcp exposes query tools by default and enables modification tools only when an allowed profile has an active write policy. Use db_list_change_rules to discover permitted modifications. Never returns credentials.")
     String db_list_profiles() {
         return service().listProfiles();
     }

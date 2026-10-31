@@ -11,6 +11,7 @@ import java.util.regex.Pattern;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
+import io.quarkiverse.mcp.servers.jdbc.change.SqlUpdateTemplate;
 import io.quarkiverse.mcp.servers.jdbc.policy.PermissionPolicy.Operation;
 import io.quarkiverse.mcp.servers.jdbc.policy.PermissionPolicy.WhitelistEntry;
 import io.quarkiverse.mcp.servers.jdbc.policy.PolicyLoader.Loaded;
@@ -31,7 +32,7 @@ public final class PolicyValidator {
     private static final Set<String> TOP = Set.of("version", "profile", "profileId", "access", "read", "write");
     private static final Set<String> READ = Set.of("maxRows", "timeoutSeconds");
     private static final Set<String> WRITE = Set.of("allowedSchemas", "operations", "maxAffectedRows",
-            "requireConfirmation", "whitelist");
+            "requireConfirmation", "whitelist", "templates");
     private static final Set<String> WHITELIST_ENTRY = Set.of("schema", "table", "operations");
 
     private PolicyValidator() {
@@ -184,8 +185,35 @@ public final class PolicyValidator {
             // An empty whitelist is valid and means "no writes at all".
         }
 
+        List<SqlUpdateTemplate> templates = new ArrayList<>();
+        if (w.has("templates")) {
+            if (access != AccessMode.READ_WRITE_WHITELIST || !w.get("templates").isArray()) {
+                throw new PolicyException("write.templates requires READ_WRITE_WHITELIST and a list");
+            }
+            Set<String> ids = new HashSet<>();
+            for (JsonNode template : w.get("templates")) {
+                if (!template.isObject()) {
+                    throw new PolicyException("SQL template must be a mapping");
+                }
+                unknownKeys(template, Set.of("id", "sql", "autoExecute"), "write.templates.");
+                if (!template.has("autoExecute") || !template.get("autoExecute").isBoolean()
+                        || !template.get("autoExecute").asBoolean()) {
+                    throw new PolicyException(
+                            "SQL templates require explicit autoExecute: true; approval is at configuration time");
+                }
+                try {
+                    SqlUpdateTemplate parsed = new SqlUpdateTemplate(text(template, "id", true), text(template, "sql", true));
+                    if (!ids.add(parsed.id().toUpperCase(Locale.ROOT))) {
+                        throw new PolicyException("SQL template IDs must be unique");
+                    }
+                    templates.add(parsed);
+                } catch (IllegalArgumentException bad) {
+                    throw new PolicyException(bad.getMessage());
+                }
+            }
+        }
         return new PermissionPolicy.Write(List.copyOf(schemas), Set.copyOf(operations), List.copyOf(whitelist),
-                maxAffected, requireConfirmation);
+                maxAffected, requireConfirmation, List.copyOf(templates));
     }
 
     private static Set<Operation> operations(JsonNode parent, String key, String where, boolean required)
