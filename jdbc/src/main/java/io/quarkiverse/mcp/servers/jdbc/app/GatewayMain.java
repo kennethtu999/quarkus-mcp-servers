@@ -14,6 +14,11 @@ import picocli.CommandLine;
 @QuarkusMain(name = "ai-db-mcp")
 public class GatewayMain {
 
+    static {
+        // This must precede picocli, keyring/JNA and any JUL logger, including plain `init`.
+        System.setProperty("java.util.logging.manager", "org.jboss.logmanager.LogManager");
+    }
+
     public static void main(String[] args) {
         System.exit(commandLine().execute(args));
     }
@@ -28,8 +33,8 @@ public class GatewayMain {
         cmd.setExecutionStrategy(new io.quarkiverse.mcp.servers.jdbc.cli.AdminAudit());
         cmd.setExecutionExceptionHandler((ex, commandLine, parseResult) -> {
             System.err.println("Error: " + ex.getMessage());
-            if (System.getenv("AI_DB_MCP_DEBUG") != null) {
-                ex.printStackTrace();
+            if (SafeDiagnostics.isKeyFailure(ex) || System.getenv("AI_DB_MCP_DEBUG") != null) {
+                SafeDiagnostics.print("Diagnostic trace (native messages omitted):", ex);
             }
             return 1;
         });

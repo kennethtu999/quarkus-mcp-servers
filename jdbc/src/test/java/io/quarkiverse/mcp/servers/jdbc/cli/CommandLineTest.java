@@ -59,6 +59,20 @@ class CommandLineTest {
         assertThat(r.exit).as(r.err).isZero();
     }
 
+    @Test
+    void repeatedInitWithLostKeyDoesNotCreateReplacementOrChangeCiphertext() throws Exception {
+        Path cfg = tmp.resolve("lost-key-cfg"), key = tmp.resolve("lost-key/master.key");
+        init(cfg, key);
+        byte[] before = Files.readAllBytes(cfg.resolve("profiles.enc"));
+        Files.delete(key);
+        Run result = run(ANSWERS,
+                concat(new String[] { "init", "--password-stdin", "--skip-connection-test" }, common(cfg, key)));
+        assertThat(result.exit).isNotZero();
+        assertThat(result.err).contains("NOT_FOUND", "Diagnostic trace").doesNotContain("CLI-TEST-SENTINEL-pw");
+        assertThat(Files.exists(key)).isFalse();
+        assertThat(Files.readAllBytes(cfg.resolve("profiles.enc"))).isEqualTo(before);
+    }
+
     private Run setup(Path cfg, Path key, String label, String settings, boolean skipConnectionTest) {
         String input = label + "##POSTGRESQL##jdbc:postgresql://127.0.0.1:1/db?sslmode=verify-full"
                 + "##setup_user##public##SETUP-SECRET\n" + settings + "\nEND\n";

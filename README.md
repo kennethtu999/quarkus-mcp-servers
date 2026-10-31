@@ -79,7 +79,7 @@ Claude 與其他 client 設定見 [完整使用說明](jdbc/README.md#接入-mcp
 - client 自動啟動 JAR，不需另外開服務；多個 client 各有獨立程序與連線池。
 - 第一次操作才連 DB，每個程序、每個 Profile 最多 4 條連線；查完歸還池中，程序結束後釋放。
 - 純執行只需 fat JAR 與 Java 17+；Python 3 用於 onboarding。
-- macOS 設定在 `~/Library/Application Support/ai-db-mcp/`，不在解壓目錄。每人自行初始化，主密鑰預設存於 OS key store。
+- macOS 設定在 `~/Library/Application Support/ai-db-mcp/`，不在解壓目錄。每人自行初始化，主密鑰預設存於 OS key store。RHEL／Ubuntu 無 Secret Service 時，首次初始化自動存到 `~/.config/dbmcp/master-<設定目錄摘要>.key`，目錄 0700、檔案 0600；之後固定沿用。
 - 操作紀錄在上述目錄的 `logs/audit.jsonl`，最多保留 7 天；每次寫入時補清過期紀錄。
 - 啟動失敗訊息輸出到 stderr。macOS 若無法取得 master key，需檢查啟動環境的 Keychain 存取權。
 

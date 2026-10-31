@@ -142,12 +142,14 @@ Pi 可在專案 `.pi/mcp.json` 使用相同 `mcpServers` 格式；OpenCode 用�
 - Linux：`${XDG_CONFIG_HOME:-~/.config}/ai-db-mcp/`
 - Windows：`%LOCALAPPDATA%/ai-db-mcp/`
 
+首次建立 key 會寫入後讀回驗證；只有確認 key 不存在才建立。存取失敗或 key 損壞時停止，不覆蓋既有資料。錯誤會在 stderr 保留原因分類、例外類型與堆疊，但不輸出原生訊息中的機敏內容。
+
 `profiles.enc` 是加密連線，`permissions/permissions_<LABEL>.yaml` 是權限，`logs/audit.jsonl` 是紀錄；主密鑰預設放 OS key store。
 
 Audit 紀錄最多保留 7 天，每次寫入時自動刪除過期紀錄（包含目前檔案及輪替檔）；停止使用期間不執行清理，下次操作時補清。單檔達 10 MiB 會輪替，另外最多保留 10 個輪替檔，因此大量使用時可能少於 7 天。
-可用 `AI_DB_MCP_CONFIG_DIR` 改位置；無 key store 時明確指定 `AI_DB_MCP_KEY_PROVIDER=keyfile:/外部安全位置/master.key`。
+可用 `AI_DB_MCP_CONFIG_DIR` 改位置；RHEL／Ubuntu 無 Secret Service 時，首次初始化會自動將 master key 存到 `~/.config/dbmcp/master-<設定目錄摘要>.key`（目錄 0700、檔案 0600），之後固定沿用；不受解壓位置影響。也可明確指定 `AI_DB_MCP_KEY_PROVIDER=keyfile:/外部安全位置/master.key`。
 所有管理命令與 MCP 程序必須使用同一設定目錄、key provider 及可存取密鑰的 OS 使用者；自訂目錄可在每個 MCP 的 `args` 加入 `--config-dir`、`--key-provider`。
-設定不在 ZIP 解壓目錄，換程式版本不會清掉連線。每人自己初始化，不共用 master key。
+設定不在 ZIP 解壓目錄，換程式版本不會清掉連線。每人自己初始化，不共用 master key。Linux 自動 key file 請另行備份；遺失後不能只靠 `profiles.enc` 還原。
 DB MCP 本身沒有管理設定的工具；若 AI 另有同帳號的 shell／檔案權限，仍可能改設定，不能視為 OS 權限隔離。
 
 ---
@@ -251,7 +253,7 @@ drivers/                          external JDBC jars, e.g. IBM JCC
 ```
 
 The master key that decrypts `profiles.enc` is kept in the **OS key store** (macOS Keychain, Windows Credential Manager, Linux
-Secret Service). Where none exists (headless Linux) use an explicit key file - never created silently:
+Secret Service). On RHEL/Ubuntu without an available Secret Service, first initialization automatically creates an owner-only key file in `~/.config/dbmcp/`. Its filename includes the configuration directory digest; subsequent runs keep using that file even if Secret Service becomes available. Existing ciphertext with a lost key, access denied, or malformed keys never triggers replacement. An explicit external key file remains available:
 
 ```shell
 ai-db-mcp init --key-provider keyfile:/safe/place/outside/config/master.key
@@ -396,4 +398,4 @@ Run `backup restore --dry-run` on a spare machine once, with the key, to prove y
 | `approve needs an interactive terminal` | By design. Run it yourself in a terminal. |
 | `The preview has expired` | Previews live 2 minutes. Ask the assistant to preview again. |
 
-Set `AI_DB_MCP_DEBUG=1` to print stack traces (they can quote driver text; do not share them blindly).
+Key failures always print a diagnostic reason (`NOT_FOUND`, `ACCESS_FAILED`, `BACKEND_UNAVAILABLE`, `INVALID_KEY`) and cause/stack trace to stderr. Native exception messages are omitted to avoid exposing secrets. `AI_DB_MCP_DEBUG=1` enables the same sanitized trace for other command failures.

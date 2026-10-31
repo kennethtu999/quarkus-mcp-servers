@@ -36,70 +36,161 @@ public final class KeyringMasterKeyProvider implements MasterKeyProvider {
         return keyId;
     }
 
+    /** Narrow adapter makes native failures testable without touching the user's key store. */
+    interface Access extends AutoCloseable {
+        String read(String service, String account) throws Exception;
+
+        void write(String service, String account, String value) throws Exception;
+    }
+
+    interface Opener {
+        Access open() throws Exception;
+    }
+
+    private Opener opener = KeyringMasterKeyProvider::openNative;
+
+    KeyringMasterKeyProvider(Path configDir, String keyId, Opener opener) {
+        this(configDir, keyId);
+        this.opener = opener;
+    }
+
     @Override
     public byte[] load() throws KeyUnavailableException {
-        try (Keyring keyring = open()) {
-            String value;
-            try {
-                value = keyring.getPassword(SERVICE, account);
-            } catch (PasswordAccessException e) {
-                throw new KeyUnavailableException("No master key in the OS key store for this configuration directory", e);
-            }
-            return decode(value);
-        } catch (KeyUnavailableException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new KeyUnavailableException("OS key store error: " + e.getClass().getSimpleName(), e);
-        }
+        return read(false);
     }
 
     @Override
     public byte[] loadOrCreate() throws KeyUnavailableException {
-        try (Keyring keyring = open()) {
+        return read(true);
+    }
+
+    private byte[] read(boolean create) throws KeyUnavailableException {
+        String phase = "open";
+        try (Access access = opener.open()) {
+            phase = "read";
+            String value;
+            Throwable missingCause = null;
             try {
-                return decode(keyring.getPassword(SERVICE, account));
-            } catch (PasswordAccessException notFound) {
-                byte[] key = new byte[32];
-                new SecureRandom().nextBytes(key);
-                keyring.setPassword(SERVICE, account, Base64.getEncoder().encodeToString(key));
-                return key;
+                value = access.read(SERVICE, account);
+            } catch (PasswordAccessException failure) {
+                // java-keyring 1.0.4 uses the same exception for absence and access errors.
+                // Only its exact, known absence result permits creating a key.
+                if (!isMissing(failure, account)) {
+                    throw failure;
+                }
+                value = null;
+                missingCause = failure;
             }
-        } catch (KeyUnavailableException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new KeyUnavailableException("OS key store error: " + e.getClass().getSimpleName(), e);
+            if (value != null) {
+                return decode(value);
+            }
+            if (!create) {
+                throw new KeyUnavailableException(KeyUnavailableException.Reason.NOT_FOUND,
+                        "No master key in the OS key store for this configuration directory [NOT_FOUND]", missingCause);
+            }
+            phase = "write";
+            byte[] key = new byte[32];
+            new SecureRandom().nextBytes(key);
+            try {
+                access.write(SERVICE, account, Base64.getEncoder().encodeToString(key));
+                phase = "verify";
+                byte[] persisted = decode(access.read(SERVICE, account));
+                try {
+                    if (!MessageDigest.isEqual(key, persisted)) {
+                        throw new KeyUnavailableException("OS key store did not persist the created key [ACCESS_FAILED]");
+                    }
+                } finally {
+                    java.util.Arrays.fill(persisted, (byte) 0);
+                }
+                return key.clone();
+            } finally {
+                java.util.Arrays.fill(key, (byte) 0);
+            }
+        } catch (KeyUnavailableException failure) {
+            throw failure;
+        } catch (Exception | LinkageError failure) {
+            throw failure(phase, failure);
         }
     }
 
     @Override
     public void store(byte[] key) throws KeyUnavailableException {
-        try (Keyring keyring = open()) {
-            keyring.setPassword(SERVICE, account, Base64.getEncoder().encodeToString(key));
-        } catch (KeyUnavailableException e) {
-            throw e;
-        } catch (Exception e) {
-            throw new KeyUnavailableException("OS key store error: " + e.getClass().getSimpleName(), e);
+        if (key == null || key.length != 32) {
+            throw new KeyUnavailableException(KeyUnavailableException.Reason.INVALID_KEY,
+                    "A 32-byte master key is required [INVALID_KEY]", null);
+        }
+        try (Access access = opener.open()) {
+            access.write(SERVICE, account, Base64.getEncoder().encodeToString(key));
+        } catch (KeyUnavailableException failure) {
+            throw failure;
+        } catch (Exception | LinkageError failure) {
+            throw failure("store", failure);
         }
     }
 
-    private static Keyring open() throws KeyUnavailableException {
-        try {
-            return Keyring.create();
-        } catch (BackendNotSupportedException e) {
-            throw new KeyUnavailableException("No supported OS key store is available. On a headless machine use an "
-                    + "explicit --key-provider=keyfile:<path> (stored outside the config directory).", e);
+    private static KeyUnavailableException failure(String phase, Throwable cause) {
+        boolean unavailable = phase.equals("open") && cause instanceof BackendNotSupportedException;
+        for (Throwable item = cause; item != null; item = item.getCause()) {
+            if (item instanceof SecurityException || item.getClass().getSimpleName().contains("AccessDenied")) {
+                unavailable = false;
+                break;
+            }
         }
+        var reason = unavailable ? KeyUnavailableException.Reason.BACKEND_UNAVAILABLE
+                : KeyUnavailableException.Reason.ACCESS_FAILED;
+        // Never copy native exception messages: they may contain credentials or connection details.
+        return new KeyUnavailableException(reason, "OS key store " + phase + " failed [" + reason + "] ("
+                + cause.getClass().getSimpleName() + ")", cause);
+    }
+
+    static boolean isMissing(PasswordAccessException failure, String account) {
+        if (failure.getCause() != null) {
+            return false;
+        }
+        return ("No stored credentials match " + SERVICE + " account: " + account).equals(failure.getMessage())
+                || "Password not Found".equals(failure.getMessage())
+                || "Error code 1168".equals(failure.getMessage())
+                || "Password is not in wallet".equals(failure.getMessage());
+    }
+
+    private static Access openNative() throws BackendNotSupportedException {
+        String os = System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT);
+        // Explicit selection keeps backend initialization causes; Keyring.create() discards them.
+        var type = os.contains("mac") ? com.github.javakeyring.KeyringStorageType.OSX_KEYCHAIN
+                : os.contains("win") ? com.github.javakeyring.KeyringStorageType.WINDOWS_CREDENTIAL_STORE
+                        : com.github.javakeyring.KeyringStorageType.GNOME_KEYRING;
+        Keyring nativeStore = Keyring.create(type);
+        return new Access() {
+            public String read(String service, String account) throws Exception {
+                return nativeStore.getPassword(service, account);
+            }
+
+            public void write(String service, String account, String value) throws Exception {
+                nativeStore.setPassword(service, account, value);
+            }
+
+            public void close() throws Exception {
+                nativeStore.close();
+            }
+        };
     }
 
     private static byte[] decode(String value) throws KeyUnavailableException {
+        if (value == null) {
+            throw new KeyUnavailableException(KeyUnavailableException.Reason.ACCESS_FAILED,
+                    "OS key store returned no key after write [ACCESS_FAILED]", null);
+        }
         try {
             byte[] key = Base64.getDecoder().decode(value);
             if (key.length != 32) {
-                throw new KeyUnavailableException("Stored master key has the wrong length");
+                java.util.Arrays.fill(key, (byte) 0);
+                throw new KeyUnavailableException(KeyUnavailableException.Reason.INVALID_KEY,
+                        "Stored master key has the wrong length [INVALID_KEY]", null);
             }
             return key;
-        } catch (IllegalArgumentException e) {
-            throw new KeyUnavailableException("Stored master key is malformed");
+        } catch (IllegalArgumentException failure) {
+            throw new KeyUnavailableException(KeyUnavailableException.Reason.INVALID_KEY,
+                    "Stored master key is malformed [INVALID_KEY]", failure);
         }
     }
 

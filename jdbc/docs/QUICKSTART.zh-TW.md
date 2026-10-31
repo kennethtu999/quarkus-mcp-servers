@@ -28,3 +28,7 @@ python3 jdbc/scripts/package.py --bundled-db2
 
 升級前以 `ai-db-mcp backup create <備份目錄>` 備份，master key 另行保管；關閉 client，替換程式安裝目錄，保留使用者設定目錄，再重跑 onboarding 的狀態／連線驗證。
 真實 Db2、PostgreSQL、Oracle 的待驗證項目見 [RISKS.md](RISKS.md)，信任邊界見 [SECURITY.md](SECURITY.md)。
+
+## Linux 驗證
+
+已用 macOS `container` 驗證 Ubuntu 22.04 與 Red Hat UBI 9（Java 17、arm64）：無桌面／Secret Service 的首次初始化、自動 `~/.config/dbmcp/` key file 與 0700／0600 權限、重啟解密、多程序 MCP 握手、遺失 key 不重建與不可用 DBus。容器測試使用假連線與 `--skip-connection-test`，不代表已完成真實 DB 或完整 RHEL 桌面環境驗證。維護者可將 JAR 唯讀掛載到容器 `/bundle/ai-db-mcp.jar`，再於 host 執行 `python3 jdbc/scripts/smoke_linux_container.py <container-name>` 重現。

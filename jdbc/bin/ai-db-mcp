@@ -11,4 +11,4 @@ if [ ! -f "$APP_DIR/lib/ai-db-mcp.jar" ]; then
     echo "Missing lib/ai-db-mcp.jar. Run jdbc/scripts/package.py first, or extract the complete distribution." >&2
     exit 1
 fi
-exec "$JAVA" -jar "$APP_DIR/lib/ai-db-mcp.jar" "$@"
+exec "$JAVA" -Djava.util.logging.manager=org.jboss.logmanager.LogManager -jar "$APP_DIR/lib/ai-db-mcp.jar" "$@"

@@ -23,7 +23,7 @@ gateway on their own workstation is **trusted**. The database account is the fin
 | Data cannot change between preview and execute unnoticed | Rows are locked, a fingerprint of the affected rows and the row count are re-verified, and the change commits only if the number of rows changed equals the number previewed. |
 | Fail closed | Missing/invalid/stale policy, disabled profile, unknown profile, unavailable driver: the operation is refused. Nothing falls back to a more permissive state. |
 | One database down does not affect others | One connection pool per profile, with isolated back-off. |
-| Secrets at rest | `profiles.enc` is AES-256-GCM with the header authenticated; the master key lives in the OS key store (or an explicit owner-only key file outside the config directory). A wrong or missing key never causes the file to be rewritten. Files are 0600, directories 0700. |
+| Secrets at rest | `profiles.enc` is AES-256-GCM with the header authenticated; the master key lives in the OS key store (or an explicit owner-only key file outside the config directory; on Linux without Secret Service, first init uses the user-authorized owner-only `~/.config/dbmcp/` fallback). A wrong or missing key never causes the file to be rewritten. Files are 0600, directories 0700. |
 | Tamper evidence | The audit log is hash-chained; policy activations and approvals are HMAC-signed. |
 
 ### What the gateway does NOT protect against

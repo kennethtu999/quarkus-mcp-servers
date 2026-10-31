@@ -15,8 +15,10 @@ def main():
         root = Path(temporary)
         options = ["--config-dir", str(root / "config"), "--key-provider", "keyfile:" + str(root / "master.key")]
         answers = "\n".join(["SMOKE", "POSTGRESQL", "jdbc:postgresql://127.0.0.1:1/smoke?sslmode=verify-full", "smoke", "public", "smoke-placeholder", ""])
-        subprocess.run(command + ["init", *options, "--password-stdin", "--skip-connection-test"],
-                       input=answers, text=True, capture_output=True, check=True, timeout=30)
+        initialized = subprocess.run(command + ["init", *options, "--password-stdin", "--skip-connection-test"],
+                                     input=answers, text=True, capture_output=True, check=True, timeout=30)
+        assert "LogManager accessed before" not in initialized.stderr, "LogManager initialized too late"
+        assert "smoke-placeholder" not in initialized.stdout + initialized.stderr, "init leaked password"
         subprocess.run(command + ["profile", "add", *options, "--password-stdin", "--skip-connection-test"],
                        input=answers.replace("SMOKE\n", "OTHER\n", 1), text=True, capture_output=True, check=True, timeout=30)
         for mode in ("read", "write", "auto"):

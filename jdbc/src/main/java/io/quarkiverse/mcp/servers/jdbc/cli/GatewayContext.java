@@ -51,7 +51,20 @@ public final class GatewayContext {
         byte[] manifestKey;
         byte[] approvalKey;
         try {
-            master = createKey ? keys.loadOrCreate() : keys.load();
+            if (createKey) {
+                // Serialize first initialization across client processes; never replace a lost existing key.
+                Path keyLock = paths.root().resolve(".master-key.lock");
+                if (java.nio.file.Files.isSymbolicLink(keyLock)) {
+                    throw new IOException("Invalid master key lock file");
+                }
+                try (var channel = java.nio.channels.FileChannel.open(keyLock, java.nio.file.StandardOpenOption.CREATE,
+                        java.nio.file.StandardOpenOption.WRITE); var ignored = channel.lock()) {
+                    FilePerms.restrictFile(keyLock);
+                    master = store.exists() ? keys.load() : keys.loadOrCreate();
+                }
+            } else {
+                master = keys.load();
+            }
             manifestKey = Hkdf.derive(master, "ai-db-mcp/policy-manifest", 32);
             approvalKey = Hkdf.derive(master, "ai-db-mcp/approvals", 32);
         } catch (MasterKeyProvider.KeyUnavailableException e) {
@@ -115,8 +128,12 @@ public final class GatewayContext {
         boolean requireTls();
 
         default MasterKeyProvider keyProvider(ConfigPaths paths) {
-            return keyFile() == null ? new KeyringMasterKeyProvider(paths.root(), KEY_ID)
-                    : new KeyFileMasterKeyProvider(keyFile(), paths.root(), KEY_ID);
+            if (keyFile() != null) {
+                return new KeyFileMasterKeyProvider(keyFile(), paths.root(), KEY_ID);
+            }
+            return System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("linux")
+                    ? new io.quarkiverse.mcp.servers.jdbc.secret.LinuxMasterKeyProvider(paths.root(), KEY_ID)
+                    : new KeyringMasterKeyProvider(paths.root(), KEY_ID);
         }
     }
 

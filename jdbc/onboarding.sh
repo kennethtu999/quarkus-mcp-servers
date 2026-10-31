@@ -32,7 +32,7 @@ if [ ! -f "$APP_DIR/lib/ai-db-mcp.jar" ]; then
     exit 1
 fi
 # Also checks that the installed Java can load the application classes.
-"$JAVA" -jar "$APP_DIR/lib/ai-db-mcp.jar" --help >/dev/null
+"$JAVA" -Djava.util.logging.manager=org.jboss.logmanager.LogManager -jar "$APP_DIR/lib/ai-db-mcp.jar" --help >/dev/null
 python3 "$APP_DIR/scripts/onboarding_check.py" "$APP_DIR" "$JAVA" --status
 
 printf '\nAI Database MCP 設定\n預設 READ_ONLY 純查詢；可明確設定 UPDATE 白名單。\n權限範例：%s/sample.yaml\n' "$APP_DIR"
@@ -40,7 +40,7 @@ ask '新增／覆蓋 DB 設定？[Y/n]：'
 case "$ANSWER" in
     n|N) ;;
     ''|y|Y)
-        "$JAVA" -jar "$APP_DIR/lib/ai-db-mcp.jar" init --setup
+        "$JAVA" -Djava.util.logging.manager=org.jboss.logmanager.LogManager -jar "$APP_DIR/lib/ai-db-mcp.jar" init --setup
         ;;
     *) printf '選項無效，已停止。\n' >&2; exit 1 ;;
 esac

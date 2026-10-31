@@ -84,7 +84,7 @@ public final class EncryptedProfileStore {
                 Arrays.fill(plain, (byte) 0);
             }
         } catch (MasterKeyProvider.KeyUnavailableException e) {
-            throw new StoreException("Master key is not available: " + e.getMessage());
+            throw new StoreException("Master key is not available: " + e.getMessage(), e);
         } catch (AesGcmEnvelope.EnvelopeException e) {
             throw new StoreException(e.getMessage());
         } finally {
@@ -132,7 +132,7 @@ public final class EncryptedProfileStore {
                 }
             }
         } catch (MasterKeyProvider.KeyUnavailableException e) {
-            throw new StoreException("Master key is not available: " + e.getMessage());
+            throw new StoreException("Master key is not available: " + e.getMessage(), e);
         } catch (IOException e) {
             throw new StoreException("Cannot write profiles.enc: " + e.getClass().getSimpleName());
         } finally {
@@ -200,7 +200,7 @@ public final class EncryptedProfileStore {
                 }
             }
         } catch (MasterKeyProvider.KeyUnavailableException e) {
-            throw new StoreException("Master key is not available: " + e.getMessage());
+            throw new StoreException("Master key is not available: " + e.getMessage(), e);
         } catch (IOException e) {
             throw new StoreException("Cannot rotate: " + e.getClass().getSimpleName());
         } finally {
@@ -293,6 +293,10 @@ public final class EncryptedProfileStore {
     public static final class StoreException extends Exception {
         public StoreException(String message) {
             super(message);
+        }
+
+        public StoreException(String message, Throwable cause) {
+            super(message, cause);
         }
     }
 }

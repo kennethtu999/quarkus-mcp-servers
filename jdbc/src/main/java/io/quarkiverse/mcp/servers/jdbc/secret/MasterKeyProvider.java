@@ -2,7 +2,7 @@ package io.quarkiverse.mcp.servers.jdbc.secret;
 
 /**
  * Source of the 32-byte master key that protects {@code profiles.enc}. Implementations must fail with
- * {@link KeyUnavailableException} rather than invent, downgrade or silently store a key somewhere weaker.
+ * {@link KeyUnavailableException} rather than replace an existing key after an access failure.
  */
 public interface MasterKeyProvider {
 
@@ -21,12 +21,30 @@ public interface MasterKeyProvider {
     String describe();
 
     class KeyUnavailableException extends Exception {
+        public enum Reason {
+            NOT_FOUND,
+            ACCESS_FAILED,
+            BACKEND_UNAVAILABLE,
+            INVALID_KEY
+        }
+
+        private final Reason reason;
+
         public KeyUnavailableException(String message) {
-            super(message);
+            this(Reason.ACCESS_FAILED, message, null);
         }
 
         public KeyUnavailableException(String message, Throwable cause) {
+            this(Reason.ACCESS_FAILED, message, cause);
+        }
+
+        public KeyUnavailableException(Reason reason, String message, Throwable cause) {
             super(message, cause);
+            this.reason = reason;
+        }
+
+        public Reason reason() {
+            return reason;
         }
     }
 }

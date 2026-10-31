@@ -48,6 +48,9 @@ public class StartCommand implements Callable<Integer> {
             ctx.profiles.load();
         } catch (StoreException | IOException e) {
             System.err.println("Cannot start: " + e.getMessage());
+            if (io.quarkiverse.mcp.servers.jdbc.app.SafeDiagnostics.isKeyFailure(e)) {
+                io.quarkiverse.mcp.servers.jdbc.app.SafeDiagnostics.print("Diagnostic trace (native messages omitted):", e);
+            }
             System.err.println("No file was modified. Restore the master key or the backup in backups/, then retry.");
             return 3;
         } catch (IllegalArgumentException e) {

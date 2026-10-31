@@ -12,7 +12,7 @@ public class CommonOptions implements GatewayContext.RootOptions {
     String configDir;
 
     @Option(names = "--key-provider", paramLabel = "keyfile:<path>", description = "Where the master key lives. Default: AI_DB_MCP_KEY_PROVIDER, "
-            + "then the OS key store. keyfile:<path> is for machines without one (headless Linux); the file must be owner-only "
+            + "then the OS key store (Linux: automatic ~/.config/dbmcp key file if unavailable on first init). An explicit keyfile:<path> must be owner-only "
             + "and outside the config directory.")
     String keyProvider;
 
