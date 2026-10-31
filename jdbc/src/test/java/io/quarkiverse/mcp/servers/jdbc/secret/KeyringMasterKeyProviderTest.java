@@ -140,4 +140,40 @@ class KeyringMasterKeyProviderTest {
         assertThat(KeyringMasterKeyProvider.isMissing(new PasswordAccessException("Other error: Password not Found"), "a"))
                 .isFalse();
     }
+
+    static NullPointerException unavailableCollection() {
+        var failure = new NullPointerException("SECRET-SENTINEL");
+        failure.setStackTrace(new StackTraceElement[] {
+                new StackTraceElement("com.github.javakeyring.internal.freedesktop.SimpleCollection", "createItem",
+                        "SimpleCollection.java", 314) });
+        return failure;
+    }
+
+    @Test
+    void missingCollectionOnFirstWriteIsUnavailableButOtherWriteErrorsRemainFailures() {
+        for (Exception cause : new Exception[] { unavailableCollection(), new NullPointerException("unknown"),
+                new PasswordAccessException("denied"), new SecurityException("denied") }) {
+            Fake fake = new Fake();
+            fake.writeFailure = cause;
+            assertThatThrownBy(provider(fake)::loadOrCreate).isInstanceOfSatisfying(KeyUnavailableException.class, failure -> {
+                assertThat(failure.reason()).isEqualTo(cause == fake.writeFailure
+                        && cause.getStackTrace()[0].getClassName().endsWith("SimpleCollection")
+                                ? Reason.BACKEND_UNAVAILABLE
+                                : Reason.ACCESS_FAILED);
+                assertThat(failure.getCause()).isSameAs(cause);
+                assertThat(failure.getMessage()).doesNotContain("SECRET-SENTINEL");
+            });
+        }
+    }
+
+    @Test
+    void rotationAndExistingKeyReadsNeverClassifyCollectionNpeAsFirstCreation() {
+        Fake fake = new Fake();
+        fake.writeFailure = unavailableCollection();
+        assertThatThrownBy(() -> provider(fake).store(new byte[32])).isInstanceOfSatisfying(KeyUnavailableException.class,
+                failure -> assertThat(failure.reason()).isEqualTo(Reason.ACCESS_FAILED));
+        fake.readFailure = unavailableCollection();
+        assertThatThrownBy(provider(fake)::loadOrCreate).isInstanceOfSatisfying(KeyUnavailableException.class,
+                failure -> assertThat(failure.reason()).isEqualTo(Reason.ACCESS_FAILED));
+    }
 }

@@ -147,7 +147,7 @@ Pi 可在專案 `.pi/mcp.json` 使用相同 `mcpServers` 格式；OpenCode 用�
 `profiles.enc` 是加密連線，`permissions/permissions_<LABEL>.yaml` 是權限，`logs/audit.jsonl` 是紀錄；主密鑰預設放 OS key store。
 
 Audit 紀錄最多保留 7 天，每次寫入時自動刪除過期紀錄（包含目前檔案及輪替檔）；停止使用期間不執行清理，下次操作時補清。單檔達 10 MiB 會輪替，另外最多保留 10 個輪替檔，因此大量使用時可能少於 7 天。
-可用 `AI_DB_MCP_CONFIG_DIR` 改位置；RHEL／Ubuntu 無 Secret Service 時，首次初始化會自動將 master key 存到 `~/.config/dbmcp/master-<設定目錄摘要>.key`（目錄 0700、檔案 0600），之後固定沿用；不受解壓位置影響。也可明確指定 `AI_DB_MCP_KEY_PROVIDER=keyfile:/外部安全位置/master.key`。
+可用 `AI_DB_MCP_CONFIG_DIR` 改位置；RHEL／Ubuntu 無 Secret Service，或預設 collection 不可用而在首次 `createItem` 寫入發生套件 NPE 時，首次初始化會自動將 master key 存到 `~/.config/dbmcp/master-<設定目錄摘要>.key`（目錄 0700、檔案 0600），之後固定沿用；不受解壓位置影響，專案與 client 不需設定環境變數或 `--key-provider`。也可明確指定 `AI_DB_MCP_KEY_PROVIDER=keyfile:/外部安全位置/master.key`。
 所有管理命令與 MCP 程序必須使用同一設定目錄、key provider 及可存取密鑰的 OS 使用者；自訂目錄可在每個 MCP 的 `args` 加入 `--config-dir`、`--key-provider`。
 設定不在 ZIP 解壓目錄，換程式版本不會清掉連線。每人自己初始化，不共用 master key。Linux 自動 key file 請另行備份；遺失後不能只靠 `profiles.enc` 還原。
 DB MCP 本身沒有管理設定的工具；若 AI 另有同帳號的 shell／檔案權限，仍可能改設定，不能視為 OS 權限隔離。

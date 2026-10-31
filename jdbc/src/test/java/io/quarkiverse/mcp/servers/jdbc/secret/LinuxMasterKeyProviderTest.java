@@ -135,4 +135,24 @@ class LinuxMasterKeyProviderTest {
         Files.delete(keyFiles().get(0));
         assertThatThrownBy(provider(cfg, os)::load).isInstanceOf(KeyUnavailableException.class);
     }
+
+    @Test
+    void firstWriteCollectionNpeFallsBackAndNextProcessUsesFileWithoutEnvironmentOverride() throws Exception {
+        Path cfg = tmp.resolve("collection-cfg");
+        var nativeStore = new KeyringMasterKeyProviderTest.Fake();
+        nativeStore.writeFailure = KeyringMasterKeyProviderTest.unavailableCollection();
+        var keyring = new KeyringMasterKeyProvider(cfg, "kid", () -> nativeStore);
+        var first = new LinuxMasterKeyProvider(cfg, "kid", tmp, keyring);
+        byte[] key = first.loadOrCreate();
+        assertThat(keyFiles()).hasSize(1);
+        assertThat(first.describe()).contains("Linux key file");
+        FilePerms.verifyFile(keyFiles().get(0));
+        // A fresh provider must discover the same file without asking the project to
+        // remember --key-provider, an environment variable or any key path.
+        nativeStore.readFailure = new SecurityException("OS store must not be touched again");
+        var next = new LinuxMasterKeyProvider(cfg, "kid", tmp, keyring);
+        assertThat(next.load()).isEqualTo(key);
+        assertThat(next.loadOrCreate()).isEqualTo(key);
+        assertThat(nativeStore.writes).isEqualTo(1);
+    }
 }

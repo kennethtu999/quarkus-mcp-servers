@@ -130,6 +130,15 @@ public final class KeyringMasterKeyProvider implements MasterKeyProvider {
 
     private static KeyUnavailableException failure(String phase, Throwable cause) {
         boolean unavailable = phase.equals("open") && cause instanceof BackendNotSupportedException;
+        // 1.0.4 can open Secret Service and report no key, then throw in createItem
+        // when the default collection is unavailable. "write" is reached only after
+        // confirmed absence in loadOrCreate; rotations use the separate "store" phase.
+        if (phase.equals("write") && cause instanceof NullPointerException
+                && java.util.Arrays.stream(cause.getStackTrace()).anyMatch(
+                        frame -> frame.getClassName().equals("com.github.javakeyring.internal.freedesktop.SimpleCollection")
+                                && frame.getMethodName().equals("createItem"))) {
+            unavailable = true;
+        }
         for (Throwable item = cause; item != null; item = item.getCause()) {
             if (item instanceof SecurityException || item.getClass().getSimpleName().contains("AccessDenied")) {
                 unavailable = false;
